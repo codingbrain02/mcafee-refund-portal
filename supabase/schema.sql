@@ -235,6 +235,14 @@ on public.users
 for select
 using (id = auth.uid() or public.current_user_role() = 'administrator');
 
+create policy "employees can read staff display profiles"
+on public.users
+for select
+using (
+  public.current_user_role() in ('refund_manager', 'administrator')
+  and role in ('refund_manager', 'administrator')
+);
+
 create policy "authenticated users can create own customer profile"
 on public.users
 for insert

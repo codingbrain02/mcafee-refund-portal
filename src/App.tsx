@@ -157,10 +157,10 @@ function App() {
     if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
       void loadInternalNotes()
       void loadPaymentTransactions()
+      void loadUsers()
     }
 
     if (profile?.role === 'administrator') {
-      void loadUsers()
       void loadAuditLogs()
     }
   }, [profile?.role])
@@ -292,6 +292,11 @@ function App() {
 
   const registeredCustomerAccounts = useMemo(
     () => users.filter((user) => user.role === 'customer'),
+    [users],
+  )
+
+  const usersById = useMemo(
+    () => new Map(users.map((user) => [user.id, user])),
     [users],
   )
 
@@ -1008,10 +1013,10 @@ function App() {
     if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
       await loadInternalNotes()
       await loadPaymentTransactions()
+      await loadUsers()
     }
 
     if (profile?.role === 'administrator') {
-      await loadUsers()
       await loadAuditLogs()
     }
   }
@@ -1023,10 +1028,10 @@ function App() {
     if (role === 'administrator' || role === 'refund_manager') {
       await loadInternalNotes()
       await loadPaymentTransactions()
+      await loadUsers()
     }
 
     if (role === 'administrator') {
-      await loadUsers()
       await loadAuditLogs()
     }
   }
@@ -1442,7 +1447,11 @@ function App() {
                           <td data-label="Status">
                             <span className="status-pill">{formatStatus(request.status)}</span>
                           </td>
-                          <td data-label="Owner">{request.assigned_to ?? 'Unassigned'}</td>
+                          <td data-label="Owner">
+                            {request.assigned_to
+                              ? (usersById.get(request.assigned_to)?.full_name ?? 'Assigned staff')
+                              : 'Unassigned'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
