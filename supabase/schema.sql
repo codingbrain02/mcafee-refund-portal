@@ -138,10 +138,40 @@ as $$
   select role from public.users where id = auth.uid()
 $$;
 
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.users (id, role, full_name, email, mfa_required)
+  values (
+    new.id,
+    'customer',
+    coalesce(nullif(new.raw_user_meta_data ->> 'full_name', ''), split_part(new.email, '@', 1), 'Customer'),
+    new.email,
+    false
+  )
+  on conflict (id) do nothing;
+
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.handle_new_auth_user();
+
 create policy "employees can view refund operations"
 on public.refund_requests
 for select
 using (public.current_user_role() in ('refund_manager', 'administrator'));
+
+create policy "customers can view own refund requests"
+on public.refund_requests
+for select
+using (created_by = auth.uid());
 
 create policy "customers can create refund requests"
 on public.refund_requests
@@ -166,6 +196,18 @@ on public.refund_documents
 for insert
 with check (uploaded_by = auth.uid());
 
+create policy "customers can view own documents"
+on public.refund_documents
+for select
+using (
+  exists (
+    select 1
+    from public.refund_requests request
+    where request.id = refund_documents.refund_request_id
+      and request.created_by = auth.uid()
+  )
+);
+
 create policy "administrators can view audit logs"
 on public.audit_logs
 for select
@@ -182,10 +224,42 @@ on public.users
 for select
 using (id = auth.uid() or public.current_user_role() = 'administrator');
 
+create policy "authenticated users can create own customer profile"
+on public.users
+for insert
+with check (id = auth.uid() and role = 'customer');
+
+create policy "employees can view customers"
+on public.customers
+for select
+using (public.current_user_role() in ('refund_manager', 'administrator'));
+
+create policy "customers can view own customer records"
+on public.customers
+for select
+using (created_by = auth.uid());
+
+create policy "customers can create own customer records"
+on public.customers
+for insert
+with check (created_by = auth.uid());
+
 create policy "employees can view status history"
 on public.refund_status_history
 for select
 using (public.current_user_role() in ('refund_manager', 'administrator'));
+
+create policy "customers can view own status history"
+on public.refund_status_history
+for select
+using (
+  exists (
+    select 1
+    from public.refund_requests request
+    where request.id = refund_status_history.refund_request_id
+      and request.created_by = auth.uid()
+  )
+);
 
 create policy "employees can add status history"
 on public.refund_status_history

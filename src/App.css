@@ -79,6 +79,29 @@ td,
   gap: 14px;
 }
 
+.auth-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--quiet);
+}
+
+.login-card .auth-switch button {
+  min-height: 34px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.login-card .auth-switch button.active {
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(24, 32, 51, 0.08);
+}
+
 .login-actions {
   display: flex;
   align-items: center;
@@ -202,6 +225,7 @@ h2 {
 .view-tabs button,
 .button-row button,
 .admin-grid button,
+.row-heading button,
 .login-card button,
 .primary-action {
   min-height: 42px;
@@ -434,6 +458,7 @@ td {
 }
 
 .button-row button,
+.row-heading button,
 .admin-grid button {
   padding: 0 12px;
 }
@@ -442,6 +467,55 @@ td {
   padding: 0;
   border: 0;
   box-shadow: none;
+}
+
+.customer-panel-stack,
+.request-list {
+  display: grid;
+  gap: 14px;
+}
+
+.customer-panel-stack .workflow-card.compact {
+  padding: 20px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.request-summary {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.request-summary > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.request-summary > div:first-child span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.request-summary dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.request-summary dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.request-summary dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-weight: 650;
 }
 
 .workflow-list {
@@ -596,6 +670,10 @@ td {
 
   .document-checklist {
     display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .request-summary dl {
     grid-template-columns: 1fr;
   }
 

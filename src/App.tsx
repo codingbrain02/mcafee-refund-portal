@@ -9,6 +9,7 @@ import {
 import './App.css'
 
 type PortalView = 'customer' | 'manager' | 'admin' | 'bank'
+type AuthMode = 'sign-in' | 'sign-up'
 type NoticeKind = 'info' | 'success' | 'error'
 
 type Notice = {
@@ -37,6 +38,8 @@ const viewLabels: Record<PortalView, string> = {
 function App() {
   const [view, setView] = useState<PortalView>('customer')
   const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [authMode, setAuthMode] = useState<AuthMode>('sign-in')
+  const [signupFullName, setSignupFullName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [otpCode, setOtpCode] = useState('')
@@ -104,10 +107,10 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (profile?.role === 'refund_manager' || profile?.role === 'administrator') {
+    if (profile) {
       void loadRefundRequests()
     }
-  }, [profile?.role])
+  }, [profile])
 
   const managerStats = useMemo(() => {
     const newRequests = requests.filter((request) => request.status === 'submitted').length
@@ -168,17 +171,27 @@ function App() {
 
     if (!data) {
       const { data: authUser } = await supabase.auth.getUser()
-      setNotice({
-        kind: 'error',
-        message: 'Signed in, but no matching user profile exists. Contact an administrator.',
-      })
-      setProfile({
+      const email = authUser.user?.email ?? ''
+      const fallbackProfile = {
         id: userId,
         role: 'customer',
-        full_name: authUser.user?.email ?? 'Authenticated user',
-        email: authUser.user?.email ?? '',
-        mfa_required: true,
-      })
+        full_name: email || 'Customer',
+        email,
+        mfa_required: false,
+      } satisfies UserProfile
+      const { error: profileError } = await supabase.from('users').insert(fallbackProfile)
+
+      if (profileError) {
+        setNotice({
+          kind: 'error',
+          message: 'Signed in, but the customer profile could not be created.',
+        })
+        setProfile(fallbackProfile)
+        return
+      }
+
+      setProfile(fallbackProfile)
+      setNotice({ kind: 'success', message: 'Signed in as customer.' })
       return
     }
 
@@ -195,7 +208,7 @@ function App() {
     const { data, error } = await supabase
       .from('refund_requests')
       .select(
-        'id, reference_number, order_number, amount_requested, refund_reason, preferred_payment_method, status, assigned_to, created_at, customers(full_name, email, phone)',
+        'id, reference_number, order_number, purchase_date, amount_requested, refund_reason, preferred_payment_method, status, assigned_to, created_at, customers(full_name, email, phone)',
       )
       .order('created_at', { ascending: false })
       .limit(25)
@@ -233,6 +246,46 @@ function App() {
 
     setAuthPassword('')
     setOtpCode('')
+  }
+
+  async function handleSignUp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase) return
+
+    const email = authEmail.trim().toLowerCase()
+    const fullName = signupFullName.trim()
+
+    if (!fullName || !email || authPassword.length < 8) {
+      setNotice({ kind: 'error', message: 'Enter your name, email, and an 8-character password.' })
+      return
+    }
+
+    setIsAuthLoading(true)
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: authPassword,
+      options: {
+        data: {
+          full_name: fullName,
+        },
+      },
+    })
+    setIsAuthLoading(false)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setAuthPassword('')
+
+    if (data.session?.user.id) {
+      await loadProfile(data.session.user.id)
+      return
+    }
+
+    setAuthMode('sign-in')
+    setNotice({ kind: 'success', message: 'Account created. Check your email before signing in.' })
   }
 
   async function handlePasswordReset() {
@@ -328,6 +381,11 @@ function App() {
     const refundReason = String(form.get('refundReason') ?? '')
     const preferredPaymentMethod = String(form.get('preferredPaymentMethod') ?? '')
     const amount = Number(form.get('amountRequested'))
+
+    if (!profile) {
+      setNotice({ kind: 'error', message: 'Sign in or create an account before submitting a refund.' })
+      return
+    }
 
     if (!fullName || !email || !referenceNumber || !orderNumber || !amount) {
       setNotice({ kind: 'error', message: 'Complete all required refund fields.' })
@@ -480,7 +538,38 @@ function App() {
             </div>
           </form>
         ) : (
-          <form className="login-card" onSubmit={handleSignIn}>
+          <form
+            className="login-card"
+            onSubmit={authMode === 'sign-up' ? handleSignUp : handleSignIn}
+          >
+            <div className="auth-switch" aria-label="Account action">
+              <button
+                className={authMode === 'sign-in' ? 'active' : ''}
+                onClick={() => setAuthMode('sign-in')}
+                type="button"
+              >
+                Sign in
+              </button>
+              <button
+                className={authMode === 'sign-up' ? 'active' : ''}
+                onClick={() => setAuthMode('sign-up')}
+                type="button"
+              >
+                Create account
+              </button>
+            </div>
+            {authMode === 'sign-up' && (
+              <label>
+                Full Name
+                <input
+                  autoComplete="name"
+                  onChange={(event) => setSignupFullName(event.target.value)}
+                  required
+                  type="text"
+                  value={signupFullName}
+                />
+              </label>
+            )}
             <label>
               Email
               <input
@@ -501,29 +590,39 @@ function App() {
                 value={authPassword}
               />
             </label>
-            <label>
-              Two-factor authentication (OTP)
-              <input
-                inputMode="numeric"
-                onChange={(event) => setOtpCode(event.target.value)}
-                placeholder="6-digit code"
-                value={otpCode}
-              />
-            </label>
+            {authMode === 'sign-in' && (
+              <label>
+                Two-factor authentication (OTP)
+                <input
+                  inputMode="numeric"
+                  onChange={(event) => setOtpCode(event.target.value)}
+                  placeholder="6-digit code"
+                  value={otpCode}
+                />
+              </label>
+            )}
             <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
-              {isAuthLoading ? 'Signing in...' : 'Sign in'}
+              {isAuthLoading
+                ? authMode === 'sign-up'
+                  ? 'Creating...'
+                  : 'Signing in...'
+                : authMode === 'sign-up'
+                  ? 'Create customer account'
+                  : 'Sign in'}
             </button>
-            <div className="login-actions">
-              <span>Need access help?</span>
-              <button
-                className="reset-password-button"
-                disabled={isResetLoading}
-                onClick={handlePasswordReset}
-                type="button"
-              >
-                {isResetLoading ? 'Sending...' : 'Reset password'}
-              </button>
-            </div>
+            {authMode === 'sign-in' && (
+              <div className="login-actions">
+                <span>Need access help?</span>
+                <button
+                  className="reset-password-button"
+                  disabled={isResetLoading}
+                  onClick={handlePasswordReset}
+                  type="button"
+                >
+                  {isResetLoading ? 'Sending...' : 'Reset password'}
+                </button>
+              </div>
+            )}
           </form>
         )}
 
@@ -565,19 +664,35 @@ function App() {
 
         {activeView === 'customer' && (
           <section className="content-grid">
-            <form className="work-card form-grid" onSubmit={handleRefundSubmit}>
+            <form
+              className="work-card form-grid"
+              key={profile?.id ?? 'guest-refund-form'}
+              onSubmit={handleRefundSubmit}
+            >
               <div className="section-heading">
                 <p className="eyebrow">Customer refund form</p>
                 <h2>Submit request</h2>
               </div>
+              {!profile && (
+                <p className="notice info full-span">
+                  Create an account or sign in to submit and track refund requests.
+                </p>
+              )}
               <label>
                 Full Name
-                <input autoComplete="name" name="fullName" placeholder="Customer full name" required />
+                <input
+                  autoComplete="name"
+                  defaultValue={profile?.full_name ?? ''}
+                  name="fullName"
+                  placeholder="Customer full name"
+                  required
+                />
               </label>
               <label>
                 Email Address
                 <input
                   autoComplete="email"
+                  defaultValue={profile?.email ?? ''}
                   name="email"
                   placeholder="customer@example.com"
                   required
@@ -644,12 +759,61 @@ function App() {
                 <span>Purchase Receipt</span>
                 <span>Cancellation Proof</span>
               </div>
-              <button className="primary-action" disabled={!supabase || isSubmittingRefund} type="submit">
-                {isSubmittingRefund ? 'Submitting...' : 'Submit refund request'}
+              <button
+                className="primary-action"
+                disabled={!supabase || !profile || isSubmittingRefund}
+                type="submit"
+              >
+                {isSubmittingRefund ? 'Submitting...' : profile ? 'Submit refund request' : 'Sign in to submit'}
               </button>
             </form>
 
-            <WorkflowCard />
+            <aside className="customer-panel-stack">
+              <section className="work-card">
+                <div className="section-heading row-heading">
+                  <div>
+                    <p className="eyebrow">Customer tracking</p>
+                    <h2>My refund requests</h2>
+                  </div>
+                  <button disabled={!profile} onClick={loadRefundRequests} type="button">
+                    Refresh
+                  </button>
+                </div>
+                {profile ? (
+                  <div className="request-list">
+                    {requests.map((request) => (
+                      <article className="request-summary" key={request.id}>
+                        <div>
+                          <strong>{request.reference_number}</strong>
+                          <span>{request.order_number}</span>
+                        </div>
+                        <span className="status-pill">{formatStatus(request.status)}</span>
+                        <dl>
+                          <div>
+                            <dt>Amount</dt>
+                            <dd>${Number(request.amount_requested).toFixed(2)}</dd>
+                          </div>
+                          <div>
+                            <dt>Method</dt>
+                            <dd>{request.preferred_payment_method}</dd>
+                          </div>
+                          <div>
+                            <dt>Submitted</dt>
+                            <dd>{formatDate(request.created_at)}</dd>
+                          </div>
+                        </dl>
+                      </article>
+                    ))}
+                    {requests.length === 0 && (
+                      <p className="empty-state">No refund requests submitted yet.</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="empty-state">Your submitted refund requests will appear here.</p>
+                )}
+              </section>
+              <WorkflowCard compact />
+            </aside>
           </section>
         )}
 
@@ -882,6 +1046,14 @@ function formatStatus(status: string) {
     .split('_')
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(value))
 }
 
 function getPasswordResetRedirectUrl() {
