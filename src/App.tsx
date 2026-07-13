@@ -30,6 +30,8 @@ type Notice = {
   message: string
 }
 
+type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
+
 const workflow = [
   'Customer Submitted',
   'Document Verification',
@@ -40,6 +42,21 @@ const workflow = [
 ]
 
 const bankStatuses = ['queued', 'submitted', 'settled', 'failed']
+
+const managerWorkflowActionRank: Record<ManagerWorkflowTarget, number> = {
+  under_review: 1,
+  documents_verified: 2,
+  approved: 3,
+}
+
+const requestStatusRank: Partial<Record<RefundStatus, number>> = {
+  submitted: 0,
+  under_review: 1,
+  documents_verified: 2,
+  approved: 3,
+  payment_processing: 4,
+  completed: 5,
+}
 
 const viewLabels: Record<PortalView, string> = {
   customer: 'customer',
@@ -289,6 +306,31 @@ function App() {
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
   }, [internalNotes, selectedRequest, statusHistory])
+
+  const selectedStatusHistory = useMemo(
+    () =>
+      selectedRequest
+        ? statusHistory.filter((item) => item.refund_request_id === selectedRequest.id)
+        : [],
+    [selectedRequest, statusHistory],
+  )
+
+  const managerWorkflowActionStates = useMemo(
+    () => ({
+      under_review: getManagerWorkflowActionState(
+        selectedRequest,
+        selectedStatusHistory,
+        'under_review',
+      ),
+      documents_verified: getManagerWorkflowActionState(
+        selectedRequest,
+        selectedStatusHistory,
+        'documents_verified',
+      ),
+      approved: getManagerWorkflowActionState(selectedRequest, selectedStatusHistory, 'approved'),
+    }),
+    [selectedRequest, selectedStatusHistory],
+  )
 
   const registeredCustomerAccounts = useMemo(
     () => users.filter((user) => user.role === 'customer'),
@@ -789,6 +831,19 @@ function App() {
     fallbackNote: string,
   ) {
     if (!supabase || !profile || !request) return
+
+    if (isManagerWorkflowTarget(nextStatus)) {
+      const actionState = getManagerWorkflowActionState(
+        request,
+        statusHistory.filter((item) => item.refund_request_id === request.id),
+        nextStatus,
+      )
+
+      if (actionState.disabled) {
+        setNotice({ kind: 'info', message: actionState.reason })
+        return
+      }
+    }
 
     const note = internalNote.trim() || fallbackNote
     setActionLoading(nextStatus)
@@ -1469,7 +1524,10 @@ function App() {
                 <div className="button-row">
                   <span className="realtime-badge">Live requests</span>
                   <button
-                    disabled={!selectedRequest || actionLoading === 'under_review'}
+                    disabled={
+                      managerWorkflowActionStates.under_review.disabled ||
+                      actionLoading === 'under_review'
+                    }
                     onClick={() =>
                       void changeRequestStatus(
                         selectedRequest,
@@ -1477,12 +1535,16 @@ function App() {
                         'Request opened for manager review.',
                       )
                     }
+                    title={managerWorkflowActionStates.under_review.reason}
                     type="button"
                   >
                     Start review
                   </button>
                   <button
-                    disabled={!selectedRequest || actionLoading === 'documents_verified'}
+                    disabled={
+                      managerWorkflowActionStates.documents_verified.disabled ||
+                      actionLoading === 'documents_verified'
+                    }
                     onClick={() =>
                       void changeRequestStatus(
                         selectedRequest,
@@ -1490,23 +1552,41 @@ function App() {
                         'Supporting documents verified.',
                       )
                     }
+                    title={managerWorkflowActionStates.documents_verified.reason}
                     type="button"
                   >
                     Verify documents
                   </button>
                   <button
-                    disabled={!selectedRequest || actionLoading === 'approved'}
+                    disabled={
+                      managerWorkflowActionStates.approved.disabled || actionLoading === 'approved'
+                    }
                     onClick={() =>
                       void changeRequestStatus(selectedRequest, 'approved', 'Refund approved.')
                     }
+                    title={managerWorkflowActionStates.approved.reason}
                     type="button"
                   >
                     Approve
                   </button>
                   <button
-                    disabled={!selectedRequest || actionLoading === 'rejected'}
+                    disabled={
+                      !selectedRequest ||
+                      ['approved', 'rejected', 'payment_processing', 'completed'].includes(
+                        selectedRequest.status,
+                      ) ||
+                      actionLoading === 'rejected'
+                    }
                     onClick={() =>
                       void changeRequestStatus(selectedRequest, 'rejected', 'Refund rejected.')
+                    }
+                    title={
+                      selectedRequest &&
+                      ['approved', 'rejected', 'payment_processing', 'completed'].includes(
+                        selectedRequest.status,
+                      )
+                        ? `Request is already ${formatStatus(selectedRequest.status)}.`
+                        : ''
                     }
                     type="button"
                   >
@@ -1880,6 +1960,51 @@ function getAllowedViews(role?: UserRole): PortalView[] {
   if (role === 'administrator') return ['manager', 'admin', 'bank']
   if (role === 'refund_manager') return ['manager', 'bank']
   return ['customer']
+}
+
+function getManagerWorkflowActionState(
+  request: RefundRequestRow | null,
+  history: StatusHistoryRow[],
+  target: ManagerWorkflowTarget,
+) {
+  if (!request) {
+    return { disabled: true, reason: 'Select a refund request first.' }
+  }
+
+  const currentStatus = request.status as RefundStatus
+  const terminalStatuses: RefundStatus[] = ['rejected', 'payment_processing', 'completed']
+
+  if (terminalStatuses.includes(currentStatus)) {
+    return {
+      disabled: true,
+      reason: `Request is already ${formatStatus(currentStatus)}.`,
+    }
+  }
+
+  if (history.some((item) => item.to_status === target)) {
+    return {
+      disabled: true,
+      reason: `${formatStatus(target)} has already been recorded.`,
+    }
+  }
+
+  const currentRank = requestStatusRank[currentStatus]
+  const targetRank = managerWorkflowActionRank[target]
+
+  if (currentRank !== undefined && currentRank >= targetRank) {
+    return {
+      disabled: true,
+      reason: `${formatStatus(target)} is locked because this request has already reached ${formatStatus(
+        currentStatus,
+      )}.`,
+    }
+  }
+
+  return { disabled: false, reason: '' }
+}
+
+function isManagerWorkflowTarget(status: RefundStatus): status is ManagerWorkflowTarget {
+  return status === 'under_review' || status === 'documents_verified' || status === 'approved'
 }
 
 function formatStatus(status: string) {
