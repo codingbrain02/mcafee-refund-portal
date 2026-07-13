@@ -419,11 +419,6 @@ function App() {
             <p className="eyebrow">Secure refund operations</p>
             <h1>Refund Management Portal</h1>
           </div>
-          <div className="security-strip">
-            <span>Supabase Auth</span>
-            <span>Role-based access</span>
-            <span>Private storage</span>
-          </div>
         </header>
 
         <nav className="view-tabs" aria-label="Portal sections">
