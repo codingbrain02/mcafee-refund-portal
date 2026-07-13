@@ -60,6 +60,7 @@ function App() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [customerDialog, setCustomerDialog] = useState<Notice | null>(null)
   const [notice, setNotice] = useState<Notice>({
     kind: hasSupabaseConfig ? 'info' : 'error',
     message: hasSupabaseConfig
@@ -606,12 +607,15 @@ function App() {
     const amount = Number(form.get('amountRequested'))
 
     if (!profile) {
-      setNotice({ kind: 'error', message: 'Sign in or create an account before submitting a refund.' })
+      showCustomerDialog(
+        'error',
+        'Please sign in or create a customer account before submitting a refund request.',
+      )
       return
     }
 
     if (!fullName || !email || !referenceNumber || !orderNumber || !amount) {
-      setNotice({ kind: 'error', message: 'Complete all required refund fields.' })
+      showCustomerDialog('error', 'Please complete the required refund details before submitting.')
       return
     }
 
@@ -633,7 +637,7 @@ function App() {
 
     if (customerError) {
       setIsSubmittingRefund(false)
-      setNotice({ kind: 'error', message: customerError.message })
+      showCustomerDialog('error', getCustomerFriendlyError(customerError.message))
       return
     }
 
@@ -654,7 +658,7 @@ function App() {
 
     if (refundError) {
       setIsSubmittingRefund(false)
-      setNotice({ kind: 'error', message: refundError.message })
+      showCustomerDialog('error', getCustomerFriendlyError(refundError.message))
       return
     }
 
@@ -670,12 +674,12 @@ function App() {
       if (file.size === 0) continue
 
       if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
-        setNotice({ kind: 'error', message: `${file.name} must be PDF, JPG, or PNG.` })
+        showCustomerDialog('error', `${file.name} must be a PDF, JPG, or PNG file.`)
         continue
       }
 
       if (file.size > 10 * 1024 * 1024) {
-        setNotice({ kind: 'error', message: `${file.name} is larger than 10 MB.` })
+        showCustomerDialog('error', `${file.name} is larger than the 10 MB upload limit.`)
         continue
       }
 
@@ -685,7 +689,7 @@ function App() {
         .upload(storagePath, file)
 
       if (uploadError) {
-        setNotice({ kind: 'error', message: uploadError.message })
+        showCustomerDialog('error', getCustomerFriendlyError(uploadError.message))
         continue
       }
 
@@ -699,20 +703,24 @@ function App() {
       })
 
       if (documentError) {
-        setNotice({ kind: 'error', message: documentError.message })
+        showCustomerDialog('error', getCustomerFriendlyError(documentError.message))
       }
     }
 
     setIsSubmittingRefund(false)
     event.currentTarget.reset()
     setRefundAmount('')
-    setNotice({
-      kind: 'success',
-      message: `Refund request ${referenceNumber} submitted.`,
-    })
+    showCustomerDialog(
+      'success',
+      `Refund request ${referenceNumber} was submitted. You can track it from My refund requests.`,
+    )
     await logAudit('refund_submitted', 'refund_request', refund.id, { referenceNumber })
     await loadRefundRequests()
     await loadStatusHistory()
+  }
+
+  function showCustomerDialog(kind: NoticeKind, message: string) {
+    setCustomerDialog({ kind, message })
   }
 
   async function changeRequestStatus(
@@ -1306,7 +1314,6 @@ function App() {
                   <p className="empty-state">Your submitted refund requests will appear here.</p>
                 )}
               </section>
-              <WorkflowCard compact />
             </aside>
           </section>
         )}
@@ -1740,6 +1747,32 @@ function App() {
           </section>
         )}
       </section>
+
+      {customerDialog && (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="customer-dialog-title"
+            aria-modal="true"
+            className={`customer-dialog ${customerDialog.kind}`}
+            role="dialog"
+          >
+            <div>
+              <p className="eyebrow">
+                {customerDialog.kind === 'success' ? 'Request update' : 'Action needed'}
+              </p>
+              <h2 id="customer-dialog-title">
+                {customerDialog.kind === 'success'
+                  ? 'Refund request received'
+                  : 'Please review your request'}
+              </h2>
+            </div>
+            <p>{customerDialog.message}</p>
+            <button onClick={() => setCustomerDialog(null)} type="button">
+              Close
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   )
 }
@@ -1782,6 +1815,27 @@ function formatDate(value: string) {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(value))
+}
+
+function getCustomerFriendlyError(message: string) {
+  const normalized = message.toLowerCase()
+
+  if (
+    normalized.includes('refund_requests_reference_number_key') ||
+    normalized.includes('duplicate key')
+  ) {
+    return 'A refund request with this reference number already exists. Please check My refund requests or use the correct reference from your receipt.'
+  }
+
+  if (normalized.includes('row-level security')) {
+    return 'Your account does not have permission to complete this action. Please sign out and sign in again, then try once more.'
+  }
+
+  if (normalized.includes('network')) {
+    return 'We could not reach the refund system. Please check your connection and try again.'
+  }
+
+  return 'We could not complete your request right now. Please review the information and try again.'
 }
 
 async function createBeneficiaryHash(value: string) {
