@@ -30,6 +30,8 @@ type Notice = {
   message: string
 }
 
+type AuthDialog = 'verify-email' | 'confirm-sign-out' | null
+
 type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
 
 const workflow = [
@@ -77,14 +79,16 @@ function App() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [customerDialog, setCustomerDialog] = useState<Notice | null>(null)
+  const [authDialog, setAuthDialog] = useState<AuthDialog>(null)
   const [deleteTargetUser, setDeleteTargetUser] = useState<UserAccountRow | null>(null)
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('')
   const [isDeletingUser, setIsDeletingUser] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const [isSessionRestoring, setIsSessionRestoring] = useState(hasSupabaseConfig)
   const [notice, setNotice] = useState<Notice>({
     kind: hasSupabaseConfig ? 'info' : 'error',
     message: hasSupabaseConfig
-      ? 'Sign in to access the refund portal.'
+      ? 'Use your authorized account to access the refund portal.'
       : 'Portal configuration is incomplete.',
   })
   const [isAuthLoading, setIsAuthLoading] = useState(false)
@@ -163,6 +167,8 @@ function App() {
       isMounted = false
       subscription.unsubscribe()
     }
+    // The Supabase auth listener is intentionally registered once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -422,15 +428,25 @@ function App() {
       }
 
       setProfile(fallbackProfile)
-      setNotice({ kind: 'success', message: 'Signed in as customer.' })
+      await loadInitialPortalData(fallbackProfile)
       return
     }
 
-    setProfile(data as UserProfile)
-    setNotice({
-      kind: 'success',
-      message: `Signed in as ${(data as UserProfile).role.replace('_', ' ')}.`,
-    })
+    const loadedProfile = data as UserProfile
+    setProfile(loadedProfile)
+    await loadInitialPortalData(loadedProfile)
+  }
+
+  async function loadInitialPortalData(profileToLoad: UserProfile) {
+    await Promise.all([loadRefundRequests(), loadStatusHistory()])
+
+    if (profileToLoad.role === 'administrator' || profileToLoad.role === 'refund_manager') {
+      await Promise.all([loadInternalNotes(), loadPaymentTransactions(), loadUsers()])
+    }
+
+    if (profileToLoad.role === 'administrator') {
+      await loadAuditLogs()
+    }
   }
 
   async function loadRefundRequests() {
@@ -553,18 +569,26 @@ function App() {
     if (!supabase) return
 
     setIsAuthLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({
+    setIsSessionRestoring(true)
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: authEmail,
       password: authPassword,
     })
-    setIsAuthLoading(false)
 
     if (error) {
+      setIsAuthLoading(false)
+      setIsSessionRestoring(false)
       setNotice({ kind: 'error', message: error.message })
       return
     }
 
+    if (data.user?.id) {
+      await loadProfile(data.user.id)
+    }
+
     setAuthPassword('')
+    setIsAuthLoading(false)
+    setIsSessionRestoring(false)
   }
 
   async function handleSignUp(event: FormEvent<HTMLFormElement>) {
@@ -596,15 +620,18 @@ function App() {
       return
     }
 
+    setSignupFullName('')
+    setAuthEmail('')
     setAuthPassword('')
+    setAuthMode('sign-in')
 
     if (data.session?.user.id) {
-      await loadProfile(data.session.user.id)
-      return
+      await supabase.auth.signOut()
+      setProfile(null)
     }
 
-    setAuthMode('sign-in')
-    setNotice({ kind: 'success', message: 'Account created. Check your email before signing in.' })
+    setAuthDialog('verify-email')
+    setNotice({ kind: 'info', message: 'Use your authorized account to access the refund portal.' })
   }
 
   async function handlePasswordReset() {
@@ -678,6 +705,7 @@ function App() {
 
   async function handleSignOut() {
     if (!supabase) return
+    setIsSigningOut(true)
     await supabase.auth.signOut()
     setProfile(null)
     setRequests([])
@@ -688,7 +716,9 @@ function App() {
     setPaymentTransactions([])
     setSelectedRequestId('')
     setView('customer')
-    setNotice({ kind: 'info', message: 'Signed out.' })
+    setAuthDialog(null)
+    setIsSigningOut(false)
+    setNotice({ kind: 'info', message: 'Use your authorized account to access the refund portal.' })
   }
 
   async function handleRefundSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1348,13 +1378,15 @@ function App() {
             <span>Signed in</span>
             <strong>{profile.full_name}</strong>
             <small>{profile.role.replace('_', ' ')}</small>
-            <button onClick={handleSignOut} type="button">
+            <button onClick={() => setAuthDialog('confirm-sign-out')} type="button">
               Sign out
             </button>
           </div>
         )}
 
-        <p className={`notice ${notice.kind}`}>{notice.message}</p>
+        {(!profile || notice.kind !== 'info') && (
+          <p className={`notice ${notice.kind}`}>{notice.message}</p>
+        )}
       </section>
 
       <section className="portal-panel">
@@ -1364,6 +1396,16 @@ function App() {
             <h1>Refund Management Portal</h1>
           </div>
         </header>
+
+        {isSessionRestoring && (
+          <div className="portal-loading-overlay" role="status">
+            <div className="portal-loading-card">
+              <span>Loading secure session</span>
+              <strong>Preparing your portal workspace</strong>
+              <p>Fetching account access, refund records, and operational data.</p>
+            </div>
+          </div>
+        )}
 
         <nav className="view-tabs" aria-label="Portal sections">
           {allowedViews.map((tab) => (
@@ -2075,6 +2117,62 @@ function App() {
             <button onClick={() => setCustomerDialog(null)} type="button">
               Close
             </button>
+          </section>
+        </div>
+      )}
+
+      {authDialog && (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="auth-dialog-title"
+            aria-modal="true"
+            className={`customer-dialog ${authDialog === 'confirm-sign-out' ? 'danger' : 'info'}`}
+            role="dialog"
+          >
+            {authDialog === 'verify-email' ? (
+              <>
+                <div>
+                  <p className="eyebrow">Account verification</p>
+                  <h2 id="auth-dialog-title">Check your email</h2>
+                </div>
+                <p>
+                  Your account has been created. Open the verification email and confirm your
+                  address before signing in to the refund portal.
+                </p>
+                <button onClick={() => setAuthDialog(null)} type="button">
+                  Back to sign in
+                </button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="eyebrow">Secure session</p>
+                  <h2 id="auth-dialog-title">Sign out of the portal?</h2>
+                </div>
+                <p>
+                  This will end your current session on this browser. Any unsaved form entries will
+                  be cleared.
+                </p>
+                <div className="modal-actions">
+                  <button
+                    className="secondary-button"
+                    disabled={isSigningOut}
+                    onClick={() => setAuthDialog(null)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="danger-button"
+                    disabled={isSigningOut}
+                    onClick={() => void handleSignOut()}
+                    type="button"
+                  >
+                    {isSigningOut ? 'Signing out...' : 'Log out'}
+                  </button>
+                </div>
+              </>
+            )}
           </section>
         </div>
       )}
