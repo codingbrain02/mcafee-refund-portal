@@ -25,12 +25,7 @@ const workflow = [
   'Completed',
 ]
 
-const auditEvents = [
-  'EMP-204 approved refund RF-10940',
-  'EMP-118 uploaded verification note for RF-10941',
-  'ADMIN-001 changed SMS notification setting',
-  'EMP-204 exported refund report',
-]
+const auditEvents: string[] = []
 
 const viewLabels: Record<PortalView, string> = {
   customer: 'customer',
@@ -53,7 +48,7 @@ function App() {
   })
   const [isAuthLoading, setIsAuthLoading] = useState(false)
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
-  const [refundAmount, setRefundAmount] = useState('248.00')
+  const [refundAmount, setRefundAmount] = useState('')
   const [otpEnabled, setOtpEnabled] = useState(true)
   const [requests, setRequests] = useState<RefundRequestRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -129,6 +124,7 @@ function App() {
 
   const paymentEta = useMemo(() => {
     const amount = Number(refundAmount) || 0
+    if (!amount) return 'Awaiting amount'
     return amount > 1000 ? 'Manual bank review required' : '2 business days'
   }, [refundAmount])
 
@@ -346,7 +342,7 @@ function App() {
 
     setIsSubmittingRefund(false)
     event.currentTarget.reset()
-    setRefundAmount('248.00')
+    setRefundAmount('')
     setNotice({
       kind: 'success',
       message: `Refund request ${referenceNumber} submitted to Supabase.`,
@@ -452,36 +448,34 @@ function App() {
               </div>
               <label>
                 Full Name
-                <input defaultValue="Maya Chen" name="fullName" required />
+                <input name="fullName" required />
               </label>
               <label>
                 Email Address
-                <input
-                  defaultValue="maya.chen@example.com"
-                  name="email"
-                  required
-                  type="email"
-                />
+                <input name="email" required type="email" />
               </label>
               <label>
                 Phone Number
-                <input defaultValue="+1 555 0184" name="phone" type="tel" />
+                <input name="phone" type="tel" />
               </label>
               <label>
                 Refund Reference Number
-                <input defaultValue={`RF-${Date.now().toString().slice(-5)}`} name="referenceNumber" required />
+                <input name="referenceNumber" required />
               </label>
               <label>
                 Order Number
-                <input defaultValue="ORD-78124" name="orderNumber" required />
+                <input name="orderNumber" required />
               </label>
               <label>
                 Purchase Date
-                <input defaultValue="2026-07-09" name="purchaseDate" type="date" />
+                <input name="purchaseDate" type="date" />
               </label>
               <label>
                 Reason for Cancellation
-                <select defaultValue="Duplicate charge" name="refundReason">
+                <select defaultValue="" name="refundReason" required>
+                  <option disabled value="">
+                    Select a reason
+                  </option>
                   <option>Duplicate charge</option>
                   <option>Service cancellation</option>
                   <option>Product return</option>
@@ -502,7 +496,10 @@ function App() {
               </label>
               <label>
                 Preferred Refund Method
-                <select defaultValue="Original payment method" name="preferredPaymentMethod">
+                <select defaultValue="" name="preferredPaymentMethod" required>
+                  <option disabled value="">
+                    Select a method
+                  </option>
                   <option>Original payment method</option>
                   <option>Bank transfer</option>
                   <option>Store credit</option>
@@ -598,7 +595,7 @@ function App() {
                   <p className="eyebrow">Notes & internal comments</p>
                   <h2>Activity timeline</h2>
                 </div>
-                <textarea defaultValue="Receipt matches payment gateway transaction. Awaiting ID verification before approval." />
+                <textarea placeholder="No internal comments yet." />
                 <WorkflowCard compact />
               </aside>
             </div>
@@ -636,6 +633,9 @@ function App() {
                   <li key={event}>{event}</li>
                 ))}
               </ol>
+              {auditEvents.length === 0 && (
+                <p className="empty-state">No audit events yet.</p>
+              )}
             </aside>
           </section>
         )}
@@ -649,11 +649,11 @@ function App() {
               </div>
               <label>
                 Beneficiary Name
-                <input defaultValue="Maya Chen" />
+                <input />
               </label>
               <label>
                 Transaction Reference
-                <input defaultValue="PAY-RF-10942" />
+                <input />
               </label>
               <label>
                 Payment Amount
@@ -661,7 +661,10 @@ function App() {
               </label>
               <label>
                 Payment Status
-                <select defaultValue="Queued">
+                <select defaultValue="">
+                  <option disabled value="">
+                    Select status
+                  </option>
                   <option>Queued</option>
                   <option>Submitted</option>
                   <option>Settled</option>
@@ -728,7 +731,7 @@ function WorkflowCard({ compact = false }: { compact?: boolean }) {
       </div>
       <div className="workflow-list">
         {workflow.map((step, index) => (
-          <div className={index < 3 ? 'complete' : ''} key={step}>
+          <div key={step}>
             <span>{index + 1}</span>
             <strong>{step}</strong>
           </div>
