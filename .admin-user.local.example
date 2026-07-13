@@ -1,0 +1,8 @@
+{
+  "supabaseUrl": "https://your-project-ref.supabase.co",
+  "serviceRoleKey": "server-only-service-role-key",
+  "email": "admin@example.com",
+  "password": "temporary-strong-password",
+  "fullName": "Portal Administrator",
+  "role": "administrator"
+}
