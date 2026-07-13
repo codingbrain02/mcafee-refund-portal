@@ -178,12 +178,14 @@ on public.refund_requests
 for insert
 with check (created_by = auth.uid());
 
-create policy "managers can update assigned refund requests"
+create policy "employees can manage refund requests"
 on public.refund_requests
 for update
 using (
-  public.current_user_role() = 'administrator'
-  or (public.current_user_role() = 'refund_manager' and assigned_to = auth.uid())
+  public.current_user_role() in ('refund_manager', 'administrator')
+)
+with check (
+  public.current_user_role() in ('refund_manager', 'administrator')
 );
 
 create policy "employees can view documents"
@@ -212,6 +214,11 @@ create policy "administrators can view audit logs"
 on public.audit_logs
 for select
 using (public.current_user_role() = 'administrator');
+
+create policy "authenticated users can create audit logs"
+on public.audit_logs
+for insert
+with check (actor_id = auth.uid());
 
 create policy "administrators can manage users"
 on public.users
@@ -261,10 +268,13 @@ using (
   )
 );
 
-create policy "employees can add status history"
+create policy "authenticated users can add status history"
 on public.refund_status_history
 for insert
-with check (public.current_user_role() in ('refund_manager', 'administrator'));
+with check (
+  employee_id = auth.uid()
+  or public.current_user_role() in ('refund_manager', 'administrator')
+);
 
 create policy "employees can manage internal notes"
 on public.internal_notes
@@ -272,10 +282,21 @@ for all
 using (public.current_user_role() in ('refund_manager', 'administrator'))
 with check (public.current_user_role() in ('refund_manager', 'administrator'));
 
-create policy "administrators can view payment transactions"
+create policy "employees can view payment transactions"
 on public.payment_transactions
 for select
-using (public.current_user_role() = 'administrator');
+using (public.current_user_role() in ('refund_manager', 'administrator'));
+
+create policy "employees can create payment transactions"
+on public.payment_transactions
+for insert
+with check (public.current_user_role() in ('refund_manager', 'administrator'));
+
+create policy "employees can update payment transactions"
+on public.payment_transactions
+for update
+using (public.current_user_role() in ('refund_manager', 'administrator'))
+with check (public.current_user_role() in ('refund_manager', 'administrator'));
 
 insert into public.roles (name, description)
 values

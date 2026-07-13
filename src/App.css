@@ -248,7 +248,8 @@ h2 {
 .admin-grid button,
 .row-heading button,
 .login-card button,
-.primary-action {
+.primary-action,
+.secondary-action {
   min-height: 42px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -480,8 +481,79 @@ td {
 
 .button-row button,
 .row-heading button,
-.admin-grid button {
+.admin-grid button,
+.secondary-action {
   padding: 0 12px;
+}
+
+tbody tr {
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+tbody tr:hover,
+tbody tr.selected-row {
+  background: #f8fbff;
+}
+
+tbody tr.selected-row {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.secondary-action {
+  margin: 10px 0 16px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.timeline-list,
+.admin-main-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.timeline-list {
+  margin-bottom: 18px;
+}
+
+.timeline-list article {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.timeline-list strong {
+  color: var(--text);
+}
+
+.timeline-list span,
+.timeline-list p {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.timeline-list p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.inline-check {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+}
+
+.inline-check input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  accent-color: var(--accent);
 }
 
 .workflow-card.compact {
@@ -600,6 +672,31 @@ td {
   gap: 10px;
   margin: 0;
   padding-left: 20px;
+}
+
+.audit-list li {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.audit-list li:last-child {
+  border-bottom: 0;
+}
+
+.audit-list strong,
+.audit-list span {
+  display: block;
+}
+
+.audit-list strong {
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.audit-list span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .summary-list {

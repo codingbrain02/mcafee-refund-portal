@@ -37,6 +37,57 @@ export type CustomerRow = {
   created_at: string
 }
 
+export type UserAccountRow = {
+  id: string
+  role: UserRole
+  full_name: string
+  email: string
+  mfa_required: boolean
+  locked_until: string | null
+  created_at: string
+}
+
+export type StatusHistoryRow = {
+  id: string
+  refund_request_id: string
+  from_status: string | null
+  to_status: string
+  employee_id: string | null
+  internal_notes: string | null
+  created_at: string
+}
+
+export type InternalNoteRow = {
+  id: string
+  refund_request_id: string
+  author_id: string
+  note: string
+  created_at: string
+}
+
+export type AuditLogRow = {
+  id: string
+  actor_id: string | null
+  action: string
+  entity_type: string
+  entity_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export type PaymentTransactionRow = {
+  id: string
+  refund_request_id: string
+  provider: string
+  transaction_reference: string
+  beneficiary_hash: string
+  amount: number
+  status: string
+  error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
 const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabaseUrl = normalizeSupabaseUrl(rawSupabaseUrl)

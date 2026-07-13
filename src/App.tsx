@@ -1,9 +1,14 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
+  type AuditLogRow,
   type CustomerRow,
   hasSupabaseConfig,
+  type InternalNoteRow,
+  type PaymentTransactionRow,
   supabase,
   type RefundRequestRow,
+  type StatusHistoryRow,
+  type UserAccountRow,
   type UserProfile,
   type UserRole,
 } from './lib/supabase'
@@ -12,6 +17,14 @@ import './App.css'
 type PortalView = 'customer' | 'manager' | 'admin' | 'bank'
 type AuthMode = 'sign-in' | 'sign-up'
 type NoticeKind = 'info' | 'success' | 'error'
+type RefundStatus =
+  | 'submitted'
+  | 'under_review'
+  | 'documents_verified'
+  | 'approved'
+  | 'rejected'
+  | 'payment_processing'
+  | 'completed'
 
 type Notice = {
   kind: NoticeKind
@@ -27,7 +40,7 @@ const workflow = [
   'Completed',
 ]
 
-const auditEvents: string[] = []
+const bankStatuses = ['queued', 'submitted', 'settled', 'failed']
 
 const viewLabels: Record<PortalView, string> = {
   customer: 'customer',
@@ -60,7 +73,18 @@ function App() {
   const [otpEnabled, setOtpEnabled] = useState(true)
   const [requests, setRequests] = useState<RefundRequestRow[]>([])
   const [customers, setCustomers] = useState<CustomerRow[]>([])
+  const [users, setUsers] = useState<UserAccountRow[]>([])
+  const [statusHistory, setStatusHistory] = useState<StatusHistoryRow[]>([])
+  const [internalNotes, setInternalNotes] = useState<InternalNoteRow[]>([])
+  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([])
+  const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransactionRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedRequestId, setSelectedRequestId] = useState('')
+  const [internalNote, setInternalNote] = useState('')
+  const [beneficiaryName, setBeneficiaryName] = useState('')
+  const [transactionReference, setTransactionReference] = useState('')
+  const [paymentStatus, setPaymentStatus] = useState('submitted')
+  const [actionLoading, setActionLoading] = useState('')
 
   const allowedViews = useMemo(() => getAllowedViews(profile?.role), [profile])
   const activeView = allowedViews.includes(view) ? view : allowedViews[0]
@@ -111,12 +135,20 @@ function App() {
   useEffect(() => {
     if (profile) {
       void loadRefundRequests()
+      void loadStatusHistory()
     }
   }, [profile])
 
   useEffect(() => {
+    if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
+      void loadInternalNotes()
+      void loadPaymentTransactions()
+    }
+
     if (profile?.role === 'administrator') {
       void loadCustomers()
+      void loadUsers()
+      void loadAuditLogs()
     }
   }, [profile?.role])
 
@@ -153,17 +185,88 @@ function App() {
     )
   }, [requests, searchTerm])
 
+  const selectedRequest = useMemo(
+    () => requests.find((request) => request.id === selectedRequestId) ?? requests[0] ?? null,
+    [requests, selectedRequestId],
+  )
+
+  const paymentReadyRequests = useMemo(
+    () =>
+      requests.filter((request) =>
+        ['approved', 'payment_processing', 'completed'].includes(request.status),
+      ),
+    [requests],
+  )
+
+  const selectedPaymentRequest = useMemo(
+    () =>
+      paymentReadyRequests.find((request) => request.id === selectedRequestId) ??
+      paymentReadyRequests[0] ??
+      null,
+    [paymentReadyRequests, selectedRequestId],
+  )
+
+  const selectedPaymentTransaction = useMemo(
+    () =>
+      paymentTransactions.find(
+        (transaction) => transaction.refund_request_id === selectedPaymentRequest?.id,
+      ) ?? null,
+    [paymentTransactions, selectedPaymentRequest?.id],
+  )
+
+  const selectedTimeline = useMemo(() => {
+    if (!selectedRequest) return []
+
+    const historyItems = statusHistory
+      .filter((item) => item.refund_request_id === selectedRequest.id)
+      .map((item) => ({
+        id: item.id,
+        createdAt: item.created_at,
+        label: `Status changed to ${formatStatus(item.to_status)}`,
+        detail: item.internal_notes ?? 'Workflow status updated.',
+      }))
+
+    const noteItems = internalNotes
+      .filter((item) => item.refund_request_id === selectedRequest.id)
+      .map((item) => ({
+        id: item.id,
+        createdAt: item.created_at,
+        label: 'Internal note',
+        detail: item.note,
+      }))
+
+    return [...historyItems, ...noteItems].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+  }, [internalNotes, selectedRequest, statusHistory])
+
+  const adminMetrics = useMemo(
+    () => [
+      ['User accounts', String(users.length)],
+      ['Customer records', String(customers.length)],
+      ['Audit events', String(auditLogs.length)],
+      ['Payment records', String(paymentTransactions.length)],
+    ],
+    [auditLogs.length, customers.length, paymentTransactions.length, users.length],
+  )
+
   const paymentEta = useMemo(() => {
-    const amount = Number(refundAmount) || 0
+    const amount = Number(selectedPaymentRequest?.amount_requested ?? refundAmount) || 0
     if (!amount) return 'Awaiting amount'
     return amount > 1000 ? 'Manual bank review required' : '2 business days'
-  }, [refundAmount])
+  }, [refundAmount, selectedPaymentRequest?.amount_requested])
 
   async function loadProfile(userId: string | null) {
     if (!supabase || !userId) {
       setProfile(null)
       setRequests([])
       setCustomers([])
+      setUsers([])
+      setStatusHistory([])
+      setInternalNotes([])
+      setAuditLogs([])
+      setPaymentTransactions([])
+      setSelectedRequestId('')
       return
     }
 
@@ -252,6 +355,93 @@ function App() {
     }
 
     setCustomers((data ?? []) as CustomerRow[])
+  }
+
+  async function loadUsers() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, role, full_name, email, mfa_required, locked_until, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setUsers((data ?? []) as UserAccountRow[])
+  }
+
+  async function loadStatusHistory() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('refund_status_history')
+      .select('id, refund_request_id, from_status, to_status, employee_id, internal_notes, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setStatusHistory((data ?? []) as StatusHistoryRow[])
+  }
+
+  async function loadInternalNotes() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('internal_notes')
+      .select('id, refund_request_id, author_id, note, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setInternalNotes((data ?? []) as InternalNoteRow[])
+  }
+
+  async function loadAuditLogs() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('id, actor_id, action, entity_type, entity_id, metadata, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setAuditLogs((data ?? []) as AuditLogRow[])
+  }
+
+  async function loadPaymentTransactions() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('payment_transactions')
+      .select(
+        'id, refund_request_id, provider, transaction_reference, beneficiary_hash, amount, status, error_message, created_at, updated_at',
+      )
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setPaymentTransactions((data ?? []) as PaymentTransactionRow[])
   }
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -389,6 +579,12 @@ function App() {
     setProfile(null)
     setRequests([])
     setCustomers([])
+    setUsers([])
+    setStatusHistory([])
+    setInternalNotes([])
+    setAuditLogs([])
+    setPaymentTransactions([])
+    setSelectedRequestId('')
     setView('customer')
     setNotice({ kind: 'info', message: 'Signed out.' })
   }
@@ -462,6 +658,14 @@ function App() {
       return
     }
 
+    await supabase.from('refund_status_history').insert({
+      refund_request_id: refund.id,
+      from_status: null,
+      to_status: 'submitted',
+      employee_id: createdBy,
+      internal_notes: 'Customer submitted refund request.',
+    })
+
     for (const file of files) {
       if (file.size === 0) continue
 
@@ -506,7 +710,265 @@ function App() {
       kind: 'success',
       message: `Refund request ${referenceNumber} submitted.`,
     })
+    await logAudit('refund_submitted', 'refund_request', refund.id, { referenceNumber })
     await loadRefundRequests()
+    await loadStatusHistory()
+  }
+
+  async function changeRequestStatus(
+    request: RefundRequestRow | null,
+    nextStatus: RefundStatus,
+    fallbackNote: string,
+  ) {
+    if (!supabase || !profile || !request) return
+
+    const note = internalNote.trim() || fallbackNote
+    setActionLoading(nextStatus)
+
+    const { error } = await supabase
+      .from('refund_requests')
+      .update({
+        status: nextStatus,
+        assigned_to: profile.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', request.id)
+
+    if (error) {
+      setActionLoading('')
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await supabase.from('refund_status_history').insert({
+      refund_request_id: request.id,
+      from_status: request.status,
+      to_status: nextStatus,
+      employee_id: profile.id,
+      internal_notes: note,
+    })
+
+    if (internalNote.trim()) {
+      await supabase.from('internal_notes').insert({
+        refund_request_id: request.id,
+        author_id: profile.id,
+        note: internalNote.trim(),
+      })
+      setInternalNote('')
+    }
+
+    await logAudit('refund_status_changed', 'refund_request', request.id, {
+      from: request.status,
+      to: nextStatus,
+    })
+
+    await refreshOperations()
+    setActionLoading('')
+    setNotice({ kind: 'success', message: `Request moved to ${formatStatus(nextStatus)}.` })
+  }
+
+  async function handleSaveInternalNote() {
+    if (!supabase || !profile || !selectedRequest || !internalNote.trim()) {
+      setNotice({ kind: 'error', message: 'Select a request and enter a note first.' })
+      return
+    }
+
+    setActionLoading('note')
+    const { error } = await supabase.from('internal_notes').insert({
+      refund_request_id: selectedRequest.id,
+      author_id: profile.id,
+      note: internalNote.trim(),
+    })
+
+    if (error) {
+      setActionLoading('')
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await logAudit('internal_note_added', 'refund_request', selectedRequest.id, {})
+    await loadInternalNotes()
+    setInternalNote('')
+    setActionLoading('')
+    setNotice({ kind: 'success', message: 'Internal note saved.' })
+  }
+
+  async function handleUpdateUserRole(user: UserAccountRow, role: UserRole) {
+    if (!supabase || !profile) return
+
+    const { error } = await supabase
+      .from('users')
+      .update({ role, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await logAudit('user_role_updated', 'user', user.id, { from: user.role, to: role })
+    await loadUsers()
+    setNotice({ kind: 'success', message: `${user.full_name} is now ${role.replace('_', ' ')}.` })
+  }
+
+  async function handleToggleMfa(user: UserAccountRow, required: boolean) {
+    if (!supabase) return
+
+    const { error } = await supabase
+      .from('users')
+      .update({ mfa_required: required, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await logAudit('user_mfa_updated', 'user', user.id, { required })
+    await loadUsers()
+    setNotice({ kind: 'success', message: 'MFA setting updated.' })
+  }
+
+  async function handleCreatePayment() {
+    if (!supabase || !profile || !selectedPaymentRequest) {
+      setNotice({ kind: 'error', message: 'Select an approved request before creating payment.' })
+      return
+    }
+
+    if (selectedPaymentTransaction) {
+      setNotice({ kind: 'info', message: 'This refund already has a payment transaction.' })
+      return
+    }
+
+    const beneficiary = beneficiaryName.trim()
+    const reference =
+      transactionReference.trim() ||
+      `PAY-${selectedPaymentRequest.reference_number}-${Date.now().toString().slice(-6)}`
+
+    if (!beneficiary) {
+      setNotice({ kind: 'error', message: 'Enter the beneficiary name before submitting payment.' })
+      return
+    }
+
+    setActionLoading('payment')
+    const beneficiaryHash = await createBeneficiaryHash(beneficiary)
+    const { error } = await supabase.from('payment_transactions').insert({
+      refund_request_id: selectedPaymentRequest.id,
+      provider: 'authorized_bank_api',
+      transaction_reference: reference,
+      beneficiary_hash: beneficiaryHash,
+      amount: selectedPaymentRequest.amount_requested,
+      status: 'submitted',
+    })
+
+    if (error) {
+      setActionLoading('')
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await changeRequestStatus(
+      selectedPaymentRequest,
+      'payment_processing',
+      `Payment request ${reference} submitted to authorized banking API.`,
+    )
+    setBeneficiaryName('')
+    setTransactionReference('')
+    setPaymentStatus('submitted')
+    await loadPaymentTransactions()
+    setActionLoading('')
+  }
+
+  async function handleUpdatePaymentStatus() {
+    if (!supabase || !selectedPaymentTransaction) {
+      setNotice({ kind: 'error', message: 'Create or select a payment transaction first.' })
+      return
+    }
+
+    setActionLoading('payment-status')
+    const { error } = await supabase
+      .from('payment_transactions')
+      .update({ status: paymentStatus, updated_at: new Date().toISOString() })
+      .eq('id', selectedPaymentTransaction.id)
+
+    if (error) {
+      setActionLoading('')
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await logAudit('payment_status_updated', 'payment_transaction', selectedPaymentTransaction.id, {
+      status: paymentStatus,
+    })
+
+    if (paymentStatus === 'settled' && selectedPaymentRequest) {
+      await changeRequestStatus(
+        selectedPaymentRequest,
+        'completed',
+        `Payment ${selectedPaymentTransaction.transaction_reference} settled.`,
+      )
+    }
+
+    await refreshOperations()
+    setActionLoading('')
+    setNotice({ kind: 'success', message: 'Payment status updated.' })
+  }
+
+  function handleExportReports() {
+    const headers = ['Reference', 'Customer', 'Email', 'Order', 'Amount', 'Status', 'Created']
+    const rows = filteredRequests.map((request) => [
+      request.reference_number,
+      request.customers?.full_name ?? '',
+      request.customers?.email ?? '',
+      request.order_number,
+      Number(request.amount_requested).toFixed(2),
+      formatStatus(request.status),
+      formatDate(request.created_at),
+    ])
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `refund-report-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    void logAudit('refund_report_exported', 'refund_request', null, { count: rows.length })
+  }
+
+  async function refreshOperations() {
+    await loadRefundRequests()
+    await loadStatusHistory()
+
+    if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
+      await loadInternalNotes()
+      await loadPaymentTransactions()
+    }
+
+    if (profile?.role === 'administrator') {
+      await loadUsers()
+      await loadCustomers()
+      await loadAuditLogs()
+    }
+  }
+
+  async function logAudit(
+    action: string,
+    entityType: string,
+    entityId: string | null,
+    metadata: Record<string, unknown>,
+  ) {
+    if (!supabase || !profile) return
+
+    await supabase.from('audit_logs').insert({
+      actor_id: profile.id,
+      action,
+      entity_type: entityType,
+      entity_id: entityId,
+      metadata,
+    })
   }
 
   return (
@@ -888,7 +1350,11 @@ function App() {
                     </thead>
                     <tbody>
                       {filteredRequests.map((request) => (
-                        <tr key={request.id}>
+                        <tr
+                          className={selectedRequest?.id === request.id ? 'selected-row' : ''}
+                          key={request.id}
+                          onClick={() => setSelectedRequestId(request.id)}
+                        >
                           <td data-label="Request">{request.reference_number}</td>
                           <td data-label="Customer">{request.customers?.full_name ?? 'Unknown'}</td>
                           <td data-label="Order">{request.order_number}</td>
@@ -909,19 +1375,86 @@ function App() {
                   <button onClick={loadRefundRequests} type="button">
                     Refresh
                   </button>
-                  <button type="button">Verify documents</button>
-                  <button type="button">Approve</button>
-                  <button type="button">Reject</button>
-                  <button type="button">Export Reports</button>
+                  <button
+                    disabled={!selectedRequest || actionLoading === 'under_review'}
+                    onClick={() =>
+                      void changeRequestStatus(
+                        selectedRequest,
+                        'under_review',
+                        'Request opened for manager review.',
+                      )
+                    }
+                    type="button"
+                  >
+                    Start review
+                  </button>
+                  <button
+                    disabled={!selectedRequest || actionLoading === 'documents_verified'}
+                    onClick={() =>
+                      void changeRequestStatus(
+                        selectedRequest,
+                        'documents_verified',
+                        'Supporting documents verified.',
+                      )
+                    }
+                    type="button"
+                  >
+                    Verify documents
+                  </button>
+                  <button
+                    disabled={!selectedRequest || actionLoading === 'approved'}
+                    onClick={() =>
+                      void changeRequestStatus(selectedRequest, 'approved', 'Refund approved.')
+                    }
+                    type="button"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    disabled={!selectedRequest || actionLoading === 'rejected'}
+                    onClick={() =>
+                      void changeRequestStatus(selectedRequest, 'rejected', 'Refund rejected.')
+                    }
+                    type="button"
+                  >
+                    Reject
+                  </button>
+                  <button onClick={handleExportReports} type="button">
+                    Export Reports
+                  </button>
                 </div>
               </section>
 
               <aside className="work-card">
                 <div className="section-heading">
                   <p className="eyebrow">Notes & internal comments</p>
-                  <h2>Activity timeline</h2>
+                  <h2>{selectedRequest ? selectedRequest.reference_number : 'Activity timeline'}</h2>
                 </div>
-                <textarea placeholder="No internal comments yet." />
+                <textarea
+                  onChange={(event) => setInternalNote(event.target.value)}
+                  placeholder="Add internal comments for the selected request."
+                  value={internalNote}
+                />
+                <button
+                  className="secondary-action"
+                  disabled={!selectedRequest || !internalNote.trim() || actionLoading === 'note'}
+                  onClick={() => void handleSaveInternalNote()}
+                  type="button"
+                >
+                  Save note
+                </button>
+                <div className="timeline-list">
+                  {selectedTimeline.map((item) => (
+                    <article key={item.id}>
+                      <strong>{item.label}</strong>
+                      <span>{formatDate(item.createdAt)}</span>
+                      <p>{item.detail}</p>
+                    </article>
+                  ))}
+                  {selectedTimeline.length === 0 && (
+                    <p className="empty-state">No activity for the selected request yet.</p>
+                  )}
+                </div>
                 <WorkflowCard compact />
               </aside>
             </div>
@@ -929,79 +1462,139 @@ function App() {
         )}
 
         {activeView === 'admin' && (
-          <section className="content-grid">
-            <section className="work-card">
-              <div className="section-heading row-heading">
-                <div>
-                  <p className="eyebrow">Administrator dashboard</p>
-                  <h2>Registered customers</h2>
-                </div>
-                <button onClick={loadCustomers} type="button">
-                  Refresh
-                </button>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Phone</th>
-                      <th>Registered</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {customers.map((customer) => (
-                      <tr key={customer.id}>
-                        <td data-label="Name">{customer.full_name}</td>
-                        <td data-label="Email">{customer.email}</td>
-                        <td data-label="Phone">{customer.phone ?? 'Not provided'}</td>
-                        <td data-label="Registered">{formatDate(customer.created_at)}</td>
-                      </tr>
+          <section>
+            <div className="stats-grid">
+              {adminMetrics.map(([label, value]) => (
+                <article className="metric-card" key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </article>
+              ))}
+            </div>
+
+            <div className="content-grid">
+              <section className="admin-main-stack">
+                <section className="work-card">
+                  <div className="section-heading row-heading">
+                    <div>
+                      <p className="eyebrow">Administrator dashboard</p>
+                      <h2>User accounts</h2>
+                    </div>
+                    <button onClick={loadUsers} type="button">
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Email</th>
+                          <th>Role</th>
+                          <th>MFA</th>
+                          <th>Created</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {users.map((user) => (
+                          <tr key={user.id}>
+                            <td data-label="Name">{user.full_name}</td>
+                            <td data-label="Email">{user.email}</td>
+                            <td data-label="Role">
+                              <select
+                                aria-label={`Role for ${user.full_name}`}
+                                onChange={(event) =>
+                                  void handleUpdateUserRole(user, event.target.value as UserRole)
+                                }
+                                value={user.role}
+                              >
+                                <option value="customer">Customer</option>
+                                <option value="refund_manager">Refund manager</option>
+                                <option value="administrator">Administrator</option>
+                              </select>
+                            </td>
+                            <td data-label="MFA">
+                              <label className="inline-check">
+                                <input
+                                  checked={user.mfa_required}
+                                  onChange={(event) =>
+                                    void handleToggleMfa(user, event.target.checked)
+                                  }
+                                  type="checkbox"
+                                />
+                                Required
+                              </label>
+                            </td>
+                            <td data-label="Created">{formatDate(user.created_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {users.length === 0 && <p className="empty-state">No user accounts yet.</p>}
+                  </div>
+                </section>
+
+                <section className="work-card">
+                  <div className="section-heading row-heading">
+                    <div>
+                      <p className="eyebrow">Customer records</p>
+                      <h2>Registered customers</h2>
+                    </div>
+                    <button onClick={loadCustomers} type="button">
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Email</th>
+                          <th>Phone</th>
+                          <th>Registered</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {customers.map((customer) => (
+                          <tr key={customer.id}>
+                            <td data-label="Name">{customer.full_name}</td>
+                            <td data-label="Email">{customer.email}</td>
+                            <td data-label="Phone">{customer.phone ?? 'Not provided'}</td>
+                            <td data-label="Registered">{formatDate(customer.created_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {customers.length === 0 && (
+                      <p className="empty-state">No customer records yet.</p>
+                    )}
+                  </div>
+                </section>
+              </section>
+
+              <aside className="admin-side-stack">
+                <section className="work-card">
+                  <div className="section-heading row-heading">
+                    <div>
+                      <p className="eyebrow">Immutable audit log</p>
+                      <h2>Recent events</h2>
+                    </div>
+                    <button onClick={loadAuditLogs} type="button">
+                      Refresh
+                    </button>
+                  </div>
+                  <ol className="audit-list">
+                    {auditLogs.map((event) => (
+                      <li key={event.id}>
+                        <strong>{event.action.replaceAll('_', ' ')}</strong>
+                        <span>{formatDate(event.created_at)}</span>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-                {customers.length === 0 && (
-                  <p className="empty-state">No registered customers yet.</p>
-                )}
-              </div>
-            </section>
-
-            <aside className="admin-side-stack">
-              <section className="work-card admin-grid">
-                <div className="section-heading full-span">
-                  <p className="eyebrow">Administrator controls</p>
-                  <h2>System access</h2>
-                </div>
-                {[
-                  'User management',
-                  'Role management',
-                  'Permission management',
-                  'System configuration',
-                  'Notification settings',
-                  'Dashboard analytics',
-                ].map((item) => (
-                  <button key={item} type="button">
-                    {item}
-                  </button>
-                ))}
-              </section>
-
-              <section className="work-card">
-                <div className="section-heading">
-                  <p className="eyebrow">Immutable audit log</p>
-                  <h2>Recent events</h2>
-                </div>
-                <ol className="audit-list">
-                  {auditEvents.map((event) => (
-                    <li key={event}>{event}</li>
-                  ))}
-                </ol>
-                {auditEvents.length === 0 && (
-                  <p className="empty-state">No audit events yet.</p>
-                )}
-              </section>
-            </aside>
+                  </ol>
+                  {auditLogs.length === 0 && <p className="empty-state">No audit events yet.</p>}
+                </section>
+              </aside>
+            </div>
           </section>
         )}
 
@@ -1012,28 +1605,61 @@ function App() {
                 <p className="eyebrow">Bank processing interface</p>
                 <h2>Authorized payment request</h2>
               </div>
+              <label className="full-span">
+                Approved Refund
+                <select
+                  onChange={(event) => setSelectedRequestId(event.target.value)}
+                  value={selectedPaymentRequest?.id ?? ''}
+                >
+                  <option disabled value="">
+                    Select approved refund
+                  </option>
+                  {paymentReadyRequests.map((request) => (
+                    <option key={request.id} value={request.id}>
+                      {request.reference_number} - {request.customers?.full_name ?? 'Unknown'} - $
+                      {Number(request.amount_requested).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label>
                 Beneficiary Name
-                <input placeholder="Beneficiary name" />
+                <input
+                  onChange={(event) => setBeneficiaryName(event.target.value)}
+                  placeholder="Beneficiary name"
+                  value={beneficiaryName}
+                />
               </label>
               <label>
                 Transaction Reference
-                <input placeholder="Transaction reference" />
+                <input
+                  onChange={(event) => setTransactionReference(event.target.value)}
+                  placeholder="Auto-generated if blank"
+                  value={transactionReference}
+                />
               </label>
               <label>
                 Payment Amount
-                <input readOnly value={refundAmount} />
+                <input
+                  readOnly
+                  value={
+                    selectedPaymentRequest
+                      ? Number(selectedPaymentRequest.amount_requested).toFixed(2)
+                      : ''
+                  }
+                />
               </label>
               <label>
                 Payment Status
-                <select defaultValue="">
-                  <option disabled value="">
-                    Select status
-                  </option>
-                  <option>Queued</option>
-                  <option>Submitted</option>
-                  <option>Settled</option>
-                  <option>Failed</option>
+                <select
+                  onChange={(event) => setPaymentStatus(event.target.value)}
+                  value={paymentStatus}
+                >
+                  {bankStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)}
+                    </option>
+                  ))}
                 </select>
               </label>
               <div className="document-checklist full-span">
@@ -1043,8 +1669,23 @@ function App() {
                 <span>Generate confirmation receipt</span>
                 <span>Maintain transaction logs</span>
               </div>
-              <button className="primary-action" type="button">
-                Submit authorized payment request
+              <button
+                className="primary-action"
+                disabled={
+                  !selectedPaymentRequest || Boolean(selectedPaymentTransaction) || actionLoading === 'payment'
+                }
+                onClick={() => void handleCreatePayment()}
+                type="button"
+              >
+                {selectedPaymentTransaction ? 'Payment request created' : 'Submit authorized payment request'}
+              </button>
+              <button
+                className="secondary-action full-span"
+                disabled={!selectedPaymentTransaction || actionLoading === 'payment-status'}
+                onClick={() => void handleUpdatePaymentStatus()}
+                type="button"
+              >
+                Update payment status
               </button>
             </section>
 
@@ -1067,6 +1708,10 @@ function App() {
                   <dd>{paymentEta}</dd>
                 </div>
                 <div>
+                  <dt>Current transaction</dt>
+                  <dd>{selectedPaymentTransaction?.transaction_reference ?? 'Not created'}</dd>
+                </div>
+                <div>
                   <dt>Retry policy</dt>
                   <dd>Logged with backoff</dd>
                 </div>
@@ -1079,6 +1724,18 @@ function App() {
                 />
                 Require manager OTP before payout
               </label>
+              <div className="timeline-list">
+                {paymentTransactions.map((transaction) => (
+                  <article key={transaction.id}>
+                    <strong>{transaction.transaction_reference}</strong>
+                    <span>{formatStatus(transaction.status)}</span>
+                    <p>${Number(transaction.amount).toFixed(2)} via {transaction.provider}</p>
+                  </article>
+                ))}
+                {paymentTransactions.length === 0 && (
+                  <p className="empty-state">No payment transactions yet.</p>
+                )}
+              </div>
             </aside>
           </section>
         )}
@@ -1125,6 +1782,15 @@ function formatDate(value: string) {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(value))
+}
+
+async function createBeneficiaryHash(value: string) {
+  const data = new TextEncoder().encode(value.trim().toLowerCase())
+  const digest = await crypto.subtle.digest('SHA-256', data)
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 function getPasswordResetRedirectUrl() {
