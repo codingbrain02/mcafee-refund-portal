@@ -361,6 +361,11 @@ function App() {
     [auditLogs.length, pendingVerificationAccounts.length, registeredCustomerAccounts.length, users.length],
   )
 
+  const auditEntries = useMemo(
+    () => auditLogs.map((event) => formatAuditEntry(event, usersById)),
+    [auditLogs, usersById],
+  )
+
   const paymentEta = useMemo(() => {
     const amount = Number(selectedPaymentRequest?.amount_requested ?? refundAmount) || 0
     if (!amount) return 'Awaiting amount'
@@ -893,6 +898,7 @@ function App() {
 
     await logAudit('refund_status_changed', 'refund_request', request.id, {
       from: request.status,
+      referenceNumber: request.reference_number,
       to: nextStatus,
     })
 
@@ -920,7 +926,9 @@ function App() {
       return
     }
 
-    await logAudit('internal_note_added', 'refund_request', selectedRequest.id, {})
+    await logAudit('internal_note_added', 'refund_request', selectedRequest.id, {
+      referenceNumber: selectedRequest.reference_number,
+    })
     await loadInternalNotes()
     setInternalNote('')
     setActionLoading('')
@@ -948,7 +956,13 @@ function App() {
       return
     }
 
-    await logAudit('user_role_updated', 'user', user.id, { from: user.role, to: role })
+    await logAudit('user_role_updated', 'user', user.id, {
+      field: 'role',
+      from: user.role,
+      targetEmail: user.email,
+      targetName: user.full_name,
+      to: role,
+    })
     await loadUsers()
     setNotice({ kind: 'success', message: `${user.full_name} is now ${role.replace('_', ' ')}.` })
   }
@@ -974,7 +988,14 @@ function App() {
       return
     }
 
-    await logAudit('user_mfa_updated', 'user', user.id, { required })
+    await logAudit('user_mfa_updated', 'user', user.id, {
+      field: 'MFA requirement',
+      from: user.mfa_required ? 'required' : 'not required',
+      required,
+      targetEmail: user.email,
+      targetName: user.full_name,
+      to: required ? 'required' : 'not required',
+    })
     await loadUsers()
     setNotice({ kind: 'success', message: 'MFA setting updated.' })
   }
@@ -1093,7 +1114,11 @@ function App() {
     }
 
     await logAudit('payment_status_updated', 'payment_transaction', selectedPaymentTransaction.id, {
+      from: selectedPaymentTransaction.status,
+      referenceNumber: selectedPaymentRequest?.reference_number,
       status: paymentStatus,
+      to: paymentStatus,
+      transactionReference: selectedPaymentTransaction.transaction_reference,
     })
 
     if (paymentStatus === 'settled' && selectedPaymentRequest) {
@@ -1130,7 +1155,10 @@ function App() {
     link.download = `refund-report-${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
     URL.revokeObjectURL(url)
-    void logAudit('refund_report_exported', 'refund_request', null, { count: rows.length })
+    void logAudit('refund_report_exported', 'refund_request', null, {
+      count: rows.length,
+      exportedAt: new Date().toISOString(),
+    })
   }
 
   async function refreshOperations() {
@@ -1176,7 +1204,12 @@ function App() {
       action,
       entity_type: entityType,
       entity_id: entityId,
-      metadata,
+      metadata: {
+        ...metadata,
+        actorEmail: profile.email,
+        actorName: profile.full_name,
+        recordedAt: new Date().toISOString(),
+      },
     })
   }
 
@@ -1721,7 +1754,7 @@ function App() {
               ))}
             </div>
 
-            <div className="content-grid">
+            <div className="admin-layout">
               <section className="admin-main-stack">
                 <section className="work-card">
                   <div className="section-heading row-heading">
@@ -1732,7 +1765,7 @@ function App() {
                     <span className="realtime-badge">Live accounts</span>
                   </div>
                   <div className="table-wrap">
-                    <table>
+                    <table className="user-accounts-table">
                       <thead>
                         <tr>
                           <th>Name</th>
@@ -1837,7 +1870,7 @@ function App() {
                     <span className="realtime-badge">Live records</span>
                   </div>
                   <div className="table-wrap">
-                    <table>
+                    <table className="customer-accounts-table">
                       <thead>
                         <tr>
                           <th>Name</th>
@@ -1897,10 +1930,11 @@ function App() {
                     <span className="realtime-badge">Live audit</span>
                   </div>
                   <ol className="audit-list">
-                    {auditLogs.map((event) => (
+                    {auditEntries.map((event) => (
                       <li key={event.id}>
-                        <strong>{event.action.replaceAll('_', ' ')}</strong>
-                        <span>{formatDate(event.created_at)}</span>
+                        <strong>{event.title}</strong>
+                        <p>{event.detail}</p>
+                        <time dateTime={event.createdAt}>{formatDateTime(event.createdAt)}</time>
                       </li>
                     ))}
                   </ol>
@@ -2207,7 +2241,100 @@ function isHeadAdministrator(email: string) {
 }
 
 function getVerificationStatus(user: UserAccountRow) {
+  if (isHeadAdministrator(user.email)) return 'verified'
+
   return user.email_confirmed_at || user.verification_status === 'verified' ? 'verified' : 'pending'
+}
+
+function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccountRow>) {
+  const actor = getAuditActor(event, usersById)
+  const metadata = event.metadata ?? {}
+  const target = getAuditTarget(event, usersById)
+  const reference = readMetadataString(metadata, 'referenceNumber')
+  const transaction = readMetadataString(metadata, 'transactionReference')
+  const from = readMetadataString(metadata, 'from')
+  const to = readMetadataString(metadata, 'to')
+
+  let detail = `${actor} performed this action.`
+
+  if (event.action === 'user_role_updated') {
+    detail = `${actor} changed ${target}'s role from ${formatAuditValue(from)} to ${formatAuditValue(to)}.`
+  } else if (event.action === 'user_mfa_updated') {
+    detail = `${actor} changed ${target}'s MFA requirement from ${formatAuditValue(from)} to ${formatAuditValue(to)}.`
+  } else if (event.action === 'user_account_deleted') {
+    detail = `${actor} deleted ${target} from the portal.`
+  } else if (event.action === 'refund_status_changed') {
+    detail = `${actor} moved refund ${reference || event.entity_id || 'request'} from ${formatAuditValue(
+      from,
+    )} to ${formatAuditValue(to)}.`
+  } else if (event.action === 'payment_status_updated') {
+    detail = `${actor} updated payment ${transaction || event.entity_id || 'transaction'} from ${formatAuditValue(
+      from,
+    )} to ${formatAuditValue(to)}.`
+  } else if (event.action === 'refund_report_exported') {
+    detail = `${actor} exported ${readMetadataString(metadata, 'count') || '0'} refund records.`
+  } else if (event.action === 'internal_note_added') {
+    detail = `${actor} added an internal note to refund ${reference || event.entity_id || 'request'}.`
+  } else if (event.action === 'refund_submitted') {
+    detail = `${actor} submitted refund ${reference || event.entity_id || 'request'}.`
+  }
+
+  return {
+    createdAt: event.created_at,
+    detail,
+    id: event.id,
+    title: titleCase(event.action.replaceAll('_', ' ')),
+  }
+}
+
+function getAuditActor(event: AuditLogRow, usersById: Map<string, UserAccountRow>) {
+  if (event.actor_id && usersById.has(event.actor_id)) {
+    return getUserDisplayName(usersById.get(event.actor_id))
+  }
+
+  const actorName = readMetadataString(event.metadata, 'actorName')
+  const actorEmail = readMetadataString(event.metadata, 'actorEmail')
+
+  return actorName || actorEmail || 'System'
+}
+
+function getAuditTarget(event: AuditLogRow, usersById: Map<string, UserAccountRow>) {
+  if (event.entity_id && event.entity_type === 'user' && usersById.has(event.entity_id)) {
+    return getUserDisplayName(usersById.get(event.entity_id))
+  }
+
+  return (
+    readMetadataString(event.metadata, 'targetName') ||
+    readMetadataString(event.metadata, 'targetEmail') ||
+    readMetadataString(event.metadata, 'email') ||
+    event.entity_id ||
+    'the selected record'
+  )
+}
+
+function getUserDisplayName(user: UserAccountRow | undefined) {
+  if (!user) return 'Unknown user'
+
+  return user.full_name ? `${user.full_name} (${user.email})` : user.email
+}
+
+function readMetadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key]
+
+  if (value === null || value === undefined) return ''
+
+  return String(value)
+}
+
+function formatAuditValue(value: string) {
+  return value ? formatStatus(value) : 'Unrecorded'
+}
+
+function titleCase(value: string) {
+  return value
+    .split(' ')
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 function formatStatus(status: string) {
@@ -2222,6 +2349,16 @@ function formatDate(value: string) {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+  }).format(new Date(value))
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   }).format(new Date(value))
 }
 

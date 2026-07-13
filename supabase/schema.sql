@@ -212,6 +212,9 @@ begin
       new.full_name := 'Portal Administrator';
       new.mfa_required := true;
       new.locked_until := null;
+      new.email_confirmed_at := coalesce(new.email_confirmed_at, now());
+      new.verification_status := 'verified';
+      new.verification_expires_at := null;
     end if;
 
     return new;
@@ -219,7 +222,20 @@ begin
 
   if tg_op = 'UPDATE' then
     if lower(old.email) = 'jccodingbrain@gmail.com' then
-      raise exception 'The head administrator account cannot be changed.';
+      if lower(new.email) <> 'jccodingbrain@gmail.com' then
+        raise exception 'The head administrator email cannot be changed.';
+      end if;
+
+      new.role := 'administrator';
+      new.full_name := 'Portal Administrator';
+      new.mfa_required := true;
+      new.locked_until := null;
+      new.email_confirmed_at := coalesce(new.email_confirmed_at, old.email_confirmed_at, now());
+      new.verification_status := 'verified';
+      new.verification_expires_at := null;
+      new.created_at := old.created_at;
+
+      return new;
     end if;
 
     if lower(new.email) = 'jccodingbrain@gmail.com' then
