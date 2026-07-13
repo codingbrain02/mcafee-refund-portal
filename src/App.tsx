@@ -1363,9 +1363,15 @@ function App() {
                   <div className="request-list">
                     {requests.map((request) => (
                       <article className="request-summary" key={request.id}>
-                        <div>
-                          <strong>{request.reference_number}</strong>
-                          <span>{request.order_number}</span>
+                        <div className="request-identifiers">
+                          <div>
+                            <span>Reference number</span>
+                            <strong>{request.reference_number}</strong>
+                          </div>
+                          <div>
+                            <span>Order number</span>
+                            <strong>{request.order_number}</strong>
+                          </div>
                         </div>
                         <span className="status-pill">{formatStatus(request.status)}</span>
                         <dl>

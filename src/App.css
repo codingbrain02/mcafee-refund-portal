@@ -657,14 +657,27 @@ tbody tr.selected-row {
   background: #ffffff;
 }
 
-.request-summary > div:first-child {
+.request-identifiers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.request-identifiers div {
   display: grid;
   gap: 3px;
 }
 
-.request-summary > div:first-child span {
+.request-identifiers span {
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: 0.74rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.request-identifiers strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .request-summary dl {
@@ -878,6 +891,10 @@ tbody tr.selected-row {
   }
 
   .request-summary dl {
+    grid-template-columns: 1fr;
+  }
+
+  .request-identifiers {
     grid-template-columns: 1fr;
   }
 
