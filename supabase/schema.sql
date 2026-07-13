@@ -38,6 +38,10 @@ create table public.customers (
   created_at timestamptz not null default now()
 );
 
+create unique index customers_created_by_email_unique
+on public.customers (created_by, lower(email))
+where created_by is not null;
+
 create table public.refund_requests (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references public.customers(id),

@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   type AuditLogRow,
-  type CustomerRow,
   hasSupabaseConfig,
   type InternalNoteRow,
   type PaymentTransactionRow,
@@ -74,7 +73,6 @@ function App() {
   const [refundAmount, setRefundAmount] = useState('')
   const [otpEnabled, setOtpEnabled] = useState(true)
   const [requests, setRequests] = useState<RefundRequestRow[]>([])
-  const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [users, setUsers] = useState<UserAccountRow[]>([])
   const [statusHistory, setStatusHistory] = useState<StatusHistoryRow[]>([])
   const [internalNotes, setInternalNotes] = useState<InternalNoteRow[]>([])
@@ -162,7 +160,6 @@ function App() {
     }
 
     if (profile?.role === 'administrator') {
-      void loadCustomers()
       void loadUsers()
       void loadAuditLogs()
     }
@@ -293,14 +290,19 @@ function App() {
     )
   }, [internalNotes, selectedRequest, statusHistory])
 
+  const registeredCustomerAccounts = useMemo(
+    () => users.filter((user) => user.role === 'customer'),
+    [users],
+  )
+
   const adminMetrics = useMemo(
     () => [
       ['User accounts', String(users.length)],
-      ['Customer records', String(customers.length)],
+      ['Customer accounts', String(registeredCustomerAccounts.length)],
       ['Audit events', String(auditLogs.length)],
       ['Payment records', String(paymentTransactions.length)],
     ],
-    [auditLogs.length, customers.length, paymentTransactions.length, users.length],
+    [auditLogs.length, paymentTransactions.length, registeredCustomerAccounts.length, users.length],
   )
 
   const paymentEta = useMemo(() => {
@@ -313,7 +315,6 @@ function App() {
     if (!supabase || !userId) {
       setProfile(null)
       setRequests([])
-      setCustomers([])
       setUsers([])
       setStatusHistory([])
       setInternalNotes([])
@@ -391,23 +392,6 @@ function App() {
           : request.customers,
       })) as RefundRequestRow[],
     )
-  }
-
-  async function loadCustomers() {
-    if (!supabase) return
-
-    const { data, error } = await supabase
-      .from('customers')
-      .select('id, full_name, email, phone, created_by, created_at')
-      .order('created_at', { ascending: false })
-      .limit(50)
-
-    if (error) {
-      setNotice({ kind: 'error', message: error.message })
-      return
-    }
-
-    setCustomers((data ?? []) as CustomerRow[])
   }
 
   async function loadUsers() {
@@ -631,7 +615,6 @@ function App() {
     await supabase.auth.signOut()
     setProfile(null)
     setRequests([])
-    setCustomers([])
     setUsers([])
     setStatusHistory([])
     setInternalNotes([])
@@ -676,27 +659,47 @@ function App() {
     const { data: userData } = await supabase.auth.getUser()
     const createdBy = userData.user?.id ?? null
 
-    const { data: customer, error: customerError } = await supabase
+    const { data: existingCustomers, error: existingCustomerError } = await supabase
       .from('customers')
-      .insert({
-        full_name: fullName,
-        email,
-        phone,
-        created_by: createdBy,
-      })
       .select('id')
-      .single()
+      .eq('created_by', createdBy)
+      .eq('email', email)
+      .order('created_at', { ascending: true })
+      .limit(1)
 
-    if (customerError) {
+    if (existingCustomerError) {
       setIsSubmittingRefund(false)
-      showCustomerDialog('error', getCustomerFriendlyError(customerError.message))
+      showCustomerDialog('error', getCustomerFriendlyError(existingCustomerError.message))
       return
+    }
+
+    let customerId = existingCustomers?.[0]?.id
+
+    if (!customerId) {
+      const { data: customer, error: customerError } = await supabase
+        .from('customers')
+        .insert({
+          full_name: fullName,
+          email,
+          phone,
+          created_by: createdBy,
+        })
+        .select('id')
+        .single()
+
+      if (customerError) {
+        setIsSubmittingRefund(false)
+        showCustomerDialog('error', getCustomerFriendlyError(customerError.message))
+        return
+      }
+
+      customerId = customer.id
     }
 
     const { data: refund, error: refundError } = await supabase
       .from('refund_requests')
       .insert({
-        customer_id: customer.id,
+        customer_id: customerId,
         reference_number: referenceNumber,
         order_number: orderNumber,
         purchase_date: purchaseDate || null,
@@ -1009,7 +1012,6 @@ function App() {
 
     if (profile?.role === 'administrator') {
       await loadUsers()
-      await loadCustomers()
       await loadAuditLogs()
     }
   }
@@ -1024,7 +1026,6 @@ function App() {
     }
 
     if (role === 'administrator') {
-      await loadCustomers()
       await loadUsers()
       await loadAuditLogs()
     }
@@ -1612,7 +1613,7 @@ function App() {
                 <section className="work-card">
                   <div className="section-heading row-heading">
                     <div>
-                      <p className="eyebrow">Customer records</p>
+                      <p className="eyebrow">Customer accounts</p>
                       <h2>Registered customers</h2>
                     </div>
                     <span className="realtime-badge">Live records</span>
@@ -1623,23 +1624,23 @@ function App() {
                         <tr>
                           <th>Name</th>
                           <th>Email</th>
-                          <th>Phone</th>
-                          <th>Registered</th>
+                          <th>Role</th>
+                          <th>Joined</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {customers.map((customer) => (
+                        {registeredCustomerAccounts.map((customer) => (
                           <tr key={customer.id}>
                             <td data-label="Name">{customer.full_name}</td>
                             <td data-label="Email">{customer.email}</td>
-                            <td data-label="Phone">{customer.phone ?? 'Not provided'}</td>
-                            <td data-label="Registered">{formatDate(customer.created_at)}</td>
+                            <td data-label="Role">{customer.role.replace('_', ' ')}</td>
+                            <td data-label="Joined">{formatDate(customer.created_at)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    {customers.length === 0 && (
-                      <p className="empty-state">No customer records yet.</p>
+                    {registeredCustomerAccounts.length === 0 && (
+                      <p className="empty-state">No registered customer accounts yet.</p>
                     )}
                   </div>
                 </section>
@@ -1861,8 +1862,8 @@ function WorkflowCard({ compact = false }: { compact?: boolean }) {
 }
 
 function getAllowedViews(role?: UserRole): PortalView[] {
-  if (role === 'administrator') return ['customer', 'manager', 'admin', 'bank']
-  if (role === 'refund_manager') return ['customer', 'manager', 'bank']
+  if (role === 'administrator') return ['manager', 'admin', 'bank']
+  if (role === 'refund_manager') return ['manager', 'bank']
   return ['customer']
 }
 
