@@ -145,6 +145,21 @@ as $$
   select role from public.users where id = auth.uid()
 $$;
 
+create or replace function public.is_portal_administrator()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.users
+    where id = auth.uid()
+      and role = 'administrator'
+      and lower(email) = 'jccodingbrain@gmail.com'
+  )
+$$;
+
 create or replace function public.handle_new_auth_user()
 returns trigger
 language plpgsql
@@ -274,8 +289,8 @@ as $$
 declare
   target_email text;
 begin
-  if public.current_user_role() <> 'administrator' then
-    raise exception 'Only administrators can delete user accounts.';
+  if not public.is_portal_administrator() then
+    raise exception 'Only the portal administrator can delete user accounts.';
   end if;
 
   if auth.uid() = target_user_id then
@@ -458,11 +473,11 @@ on public.audit_logs
 for insert
 with check (actor_id = auth.uid());
 
-create policy "administrators can manage users"
+create policy "portal administrator can manage users"
 on public.users
 for all
-using (public.current_user_role() = 'administrator')
-with check (public.current_user_role() = 'administrator');
+using (public.is_portal_administrator())
+with check (public.is_portal_administrator());
 
 create policy "users can read their own profile"
 on public.users

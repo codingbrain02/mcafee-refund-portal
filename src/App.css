@@ -854,42 +854,37 @@ tbody tr.selected-row {
 }
 
 .user-accounts-table {
-  min-width: 960px;
+  min-width: 860px;
 }
 
 .user-accounts-table th:nth-child(1),
 .user-accounts-table td:nth-child(1) {
-  width: 18%;
+  width: 20%;
 }
 
 .user-accounts-table th:nth-child(2),
 .user-accounts-table td:nth-child(2) {
-  width: 25%;
+  width: 29%;
 }
 
 .user-accounts-table th:nth-child(3),
 .user-accounts-table td:nth-child(3) {
-  width: 15%;
+  width: 17%;
 }
 
 .user-accounts-table th:nth-child(4),
 .user-accounts-table td:nth-child(4) {
-  width: 14%;
+  width: 16%;
 }
 
 .user-accounts-table th:nth-child(5),
 .user-accounts-table td:nth-child(5) {
-  width: 11%;
+  width: 12%;
 }
 
 .user-accounts-table th:nth-child(6),
 .user-accounts-table td:nth-child(6) {
-  width: 10%;
-}
-
-.user-accounts-table th:nth-child(7),
-.user-accounts-table td:nth-child(7) {
-  width: 7%;
+  width: 6%;
 }
 
 .user-accounts-table select {
@@ -900,10 +895,25 @@ tbody tr.selected-row {
   white-space: nowrap;
 }
 
+.table-action-button.icon-button {
+  display: inline-grid;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  place-items: center;
+  padding: 0;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .audit-list {
   gap: 10px;
+  max-height: 430px;
   margin: 0;
   padding-left: 20px;
+  padding-right: 6px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .audit-list li {
@@ -937,6 +947,13 @@ tbody tr.selected-row {
   margin-top: 5px;
   color: var(--muted);
   font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.audit-list-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
   font-weight: 650;
 }
 

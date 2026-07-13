@@ -73,7 +73,6 @@ function App() {
   const [signupFullName, setSignupFullName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
-  const [otpCode, setOtpCode] = useState('')
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -92,7 +91,6 @@ function App() {
   const [isResetLoading, setIsResetLoading] = useState(false)
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
   const [refundAmount, setRefundAmount] = useState('')
-  const [otpEnabled, setOtpEnabled] = useState(true)
   const [requests, setRequests] = useState<RefundRequestRow[]>([])
   const [users, setUsers] = useState<UserAccountRow[]>([])
   const [statusHistory, setStatusHistory] = useState<StatusHistoryRow[]>([])
@@ -362,9 +360,15 @@ function App() {
   )
 
   const auditEntries = useMemo(
-    () => auditLogs.map((event) => formatAuditEntry(event, usersById)),
+    () =>
+      auditLogs
+        .filter((event) => event.action !== 'user_mfa_updated')
+        .map((event) => formatAuditEntry(event, usersById)),
     [auditLogs, usersById],
   )
+
+  const visibleAuditEntries = useMemo(() => auditEntries.slice(0, 8), [auditEntries])
+  const canManageUserAccounts = isHeadAdministrator(profile?.email ?? '')
 
   const paymentEta = useMemo(() => {
     const amount = Number(selectedPaymentRequest?.amount_requested ?? refundAmount) || 0
@@ -561,7 +565,6 @@ function App() {
     }
 
     setAuthPassword('')
-    setOtpCode('')
   }
 
   async function handleSignUp(event: FormEvent<HTMLFormElement>) {
@@ -938,6 +941,14 @@ function App() {
   async function handleUpdateUserRole(user: UserAccountRow, role: UserRole) {
     if (!supabase || !profile) return
 
+    if (!canManageUserAccounts) {
+      setNotice({
+        kind: 'error',
+        message: 'Only the portal administrator can change user roles.',
+      })
+      return
+    }
+
     if (isHeadAdministrator(user.email)) {
       setNotice({
         kind: 'info',
@@ -967,41 +978,16 @@ function App() {
     setNotice({ kind: 'success', message: `${user.full_name} is now ${role.replace('_', ' ')}.` })
   }
 
-  async function handleToggleMfa(user: UserAccountRow, required: boolean) {
-    if (!supabase) return
+  async function handleDeleteUserAccount() {
+    if (!supabase || !profile || !deleteTargetUser) return
 
-    if (isHeadAdministrator(user.email)) {
+    if (!canManageUserAccounts) {
       setNotice({
-        kind: 'info',
-        message: 'The head administrator account is protected and cannot be changed.',
+        kind: 'error',
+        message: 'Only the portal administrator can delete user accounts.',
       })
       return
     }
-
-    const { error } = await supabase
-      .from('users')
-      .update({ mfa_required: required, updated_at: new Date().toISOString() })
-      .eq('id', user.id)
-
-    if (error) {
-      setNotice({ kind: 'error', message: error.message })
-      return
-    }
-
-    await logAudit('user_mfa_updated', 'user', user.id, {
-      field: 'MFA requirement',
-      from: user.mfa_required ? 'required' : 'not required',
-      required,
-      targetEmail: user.email,
-      targetName: user.full_name,
-      to: required ? 'required' : 'not required',
-    })
-    await loadUsers()
-    setNotice({ kind: 'success', message: 'MFA setting updated.' })
-  }
-
-  async function handleDeleteUserAccount() {
-    if (!supabase || !profile || !deleteTargetUser) return
 
     if (isHeadAdministrator(deleteTargetUser.email)) {
       setNotice({
@@ -1327,17 +1313,6 @@ function App() {
                 value={authPassword}
               />
             </label>
-            {authMode === 'sign-in' && (
-              <label>
-                Two-factor authentication (OTP)
-                <input
-                  inputMode="numeric"
-                  onChange={(event) => setOtpCode(event.target.value)}
-                  placeholder="6-digit code"
-                  value={otpCode}
-                />
-              </label>
-            )}
             <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
               {isAuthLoading
                 ? authMode === 'sign-up'
@@ -1772,7 +1747,6 @@ function App() {
                           <th>Email</th>
                           <th>Status</th>
                           <th>Role</th>
-                          <th>MFA</th>
                           <th>Created</th>
                           <th>Action</th>
                         </tr>
@@ -1781,7 +1755,9 @@ function App() {
                         {users.map((user) => {
                           const verificationStatus = getVerificationStatus(user)
                           const deleteDisabled =
-                            isHeadAdministrator(user.email) || user.id === profile?.id
+                            !canManageUserAccounts ||
+                            isHeadAdministrator(user.email) ||
+                            user.id === profile?.id
 
                           return (
                             <tr key={user.id}>
@@ -1809,7 +1785,7 @@ function App() {
                               <td data-label="Role">
                                 <select
                                   aria-label={`Role for ${user.full_name}`}
-                                  disabled={isHeadAdministrator(user.email)}
+                                  disabled={!canManageUserAccounts || isHeadAdministrator(user.email)}
                                   onChange={(event) =>
                                     void handleUpdateUserRole(user, event.target.value as UserRole)
                                   }
@@ -1820,36 +1796,26 @@ function App() {
                                   <option value="administrator">Administrator</option>
                                 </select>
                               </td>
-                              <td data-label="MFA">
-                                <label className="inline-check">
-                                  <input
-                                    checked={user.mfa_required}
-                                    disabled={isHeadAdministrator(user.email)}
-                                    onChange={(event) =>
-                                      void handleToggleMfa(user, event.target.checked)
-                                    }
-                                    type="checkbox"
-                                  />
-                                  Required
-                                </label>
-                              </td>
                               <td data-label="Created">{formatDate(user.created_at)}</td>
                               <td data-label="Action">
                                 <button
-                                  className="table-action-button danger"
+                                  aria-label={`Delete ${user.full_name}`}
+                                  className="table-action-button danger icon-button"
                                   disabled={deleteDisabled}
                                   onClick={() => {
                                     setDeleteTargetUser(user)
                                     setDeleteConfirmationText('')
                                   }}
                                   title={
-                                    deleteDisabled
+                                    !canManageUserAccounts
+                                      ? 'Only the portal administrator can delete user accounts'
+                                      : deleteDisabled
                                       ? 'Protected or active-session account'
                                       : 'Delete this user account'
                                   }
                                   type="button"
                                 >
-                                  Delete
+                                  X
                                 </button>
                               </td>
                             </tr>
@@ -1930,7 +1896,7 @@ function App() {
                     <span className="realtime-badge">Live audit</span>
                   </div>
                   <ol className="audit-list">
-                    {auditEntries.map((event) => (
+                    {visibleAuditEntries.map((event) => (
                       <li key={event.id}>
                         <strong>{event.title}</strong>
                         <p>{event.detail}</p>
@@ -1938,7 +1904,14 @@ function App() {
                       </li>
                     ))}
                   </ol>
-                  {auditLogs.length === 0 && <p className="empty-state">No audit events yet.</p>}
+                  {auditEntries.length > visibleAuditEntries.length && (
+                    <p className="audit-list-note">
+                      Showing latest {visibleAuditEntries.length} relevant events.
+                    </p>
+                  )}
+                  {auditEntries.length === 0 && (
+                    <p className="empty-state">No relevant audit events yet.</p>
+                  )}
                 </section>
               </aside>
             </div>
@@ -2063,14 +2036,6 @@ function App() {
                   <dd>Logged with backoff</dd>
                 </div>
               </dl>
-              <label className="toggle-row">
-                <input
-                  checked={otpEnabled}
-                  onChange={(event) => setOtpEnabled(event.target.checked)}
-                  type="checkbox"
-                />
-                Require manager OTP before payout
-              </label>
               <div className="timeline-list">
                 {paymentTransactions.map((transaction) => (
                   <article key={transaction.id}>
