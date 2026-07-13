@@ -475,6 +475,21 @@ td {
   gap: 14px;
 }
 
+.customer-track-heading {
+  display: grid;
+  gap: 12px;
+}
+
+.customer-track-heading h2 {
+  max-width: 100%;
+  line-height: 1.2;
+}
+
+.customer-track-heading button {
+  width: 100%;
+  padding: 0 12px;
+}
+
 .customer-panel-stack .workflow-card.compact {
   padding: 20px;
   border: 1px solid var(--border);
@@ -516,6 +531,13 @@ td {
   margin: 2px 0 0;
   color: var(--text);
   font-weight: 650;
+}
+
+.request-list .empty-state,
+.customer-panel-stack > .work-card > .empty-state {
+  padding: 14px 0 0;
+  border-top: 1px solid var(--border);
+  line-height: 1.45;
 }
 
 .workflow-list {

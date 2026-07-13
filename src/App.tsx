@@ -770,7 +770,7 @@ function App() {
 
             <aside className="customer-panel-stack">
               <section className="work-card">
-                <div className="section-heading row-heading">
+                <div className="section-heading customer-track-heading">
                   <div>
                     <p className="eyebrow">Customer tracking</p>
                     <h2>My refund requests</h2>
