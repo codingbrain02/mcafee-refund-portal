@@ -153,6 +153,43 @@ function App() {
     }
   }, [profile?.role])
 
+  useEffect(() => {
+    const client = supabase
+    if (!client || !profile) return
+
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    const queueRealtimeRefresh = () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer)
+      }
+
+      refreshTimer = setTimeout(() => {
+        void refreshRealtimeData(profile.role)
+      }, 180)
+    }
+
+    const channel = client
+      .channel(`portal-realtime-${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'refund_requests' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'refund_status_history' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_notes' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payment_transactions' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_logs' }, queueRealtimeRefresh)
+      .subscribe()
+
+    return () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer)
+      }
+
+      void client.removeChannel(channel)
+    }
+    // The loader functions intentionally read the latest role-scoped state when realtime fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile])
+
   const managerStats = useMemo(() => {
     const newRequests = requests.filter((request) => request.status === 'submitted').length
     const pending = requests.filter((request) =>
@@ -962,6 +999,22 @@ function App() {
     }
   }
 
+  async function refreshRealtimeData(role: UserRole) {
+    await loadRefundRequests()
+    await loadStatusHistory()
+
+    if (role === 'administrator' || role === 'refund_manager') {
+      await loadInternalNotes()
+      await loadPaymentTransactions()
+    }
+
+    if (role === 'administrator') {
+      await loadCustomers()
+      await loadUsers()
+      await loadAuditLogs()
+    }
+  }
+
   async function logAudit(
     action: string,
     entityType: string,
@@ -1277,9 +1330,7 @@ function App() {
                     <p className="eyebrow">Customer tracking</p>
                     <h2>My refund requests</h2>
                   </div>
-                  <button disabled={!profile} onClick={loadRefundRequests} type="button">
-                    Refresh
-                  </button>
+                  <span className="realtime-badge">Updates automatically</span>
                 </div>
                 {profile ? (
                   <div className="request-list">
@@ -1379,9 +1430,7 @@ function App() {
                   )}
                 </div>
                 <div className="button-row">
-                  <button onClick={loadRefundRequests} type="button">
-                    Refresh
-                  </button>
+                  <span className="realtime-badge">Live requests</span>
                   <button
                     disabled={!selectedRequest || actionLoading === 'under_review'}
                     onClick={() =>
@@ -1487,9 +1536,7 @@ function App() {
                       <p className="eyebrow">Administrator dashboard</p>
                       <h2>User accounts</h2>
                     </div>
-                    <button onClick={loadUsers} type="button">
-                      Refresh
-                    </button>
+                    <span className="realtime-badge">Live accounts</span>
                   </div>
                   <div className="table-wrap">
                     <table>
@@ -1547,9 +1594,7 @@ function App() {
                       <p className="eyebrow">Customer records</p>
                       <h2>Registered customers</h2>
                     </div>
-                    <button onClick={loadCustomers} type="button">
-                      Refresh
-                    </button>
+                    <span className="realtime-badge">Live records</span>
                   </div>
                   <div className="table-wrap">
                     <table>
@@ -1586,9 +1631,7 @@ function App() {
                       <p className="eyebrow">Immutable audit log</p>
                       <h2>Recent events</h2>
                     </div>
-                    <button onClick={loadAuditLogs} type="button">
-                      Refresh
-                    </button>
+                    <span className="realtime-badge">Live audit</span>
                   </div>
                   <ol className="audit-list">
                     {auditLogs.map((event) => (

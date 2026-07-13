@@ -467,7 +467,8 @@ textarea:focus {
 }
 
 .document-checklist span,
-.status-pill {
+.status-pill,
+.realtime-badge {
   display: inline-flex;
   align-items: center;
   min-height: 30px;
@@ -525,7 +526,15 @@ td {
   color: var(--status);
 }
 
+.realtime-badge {
+  justify-content: center;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .button-row {
+  align-items: center;
   margin-top: 16px;
 }
 
