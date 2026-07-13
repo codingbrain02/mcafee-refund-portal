@@ -431,6 +431,7 @@ function App() {
           {allowedViews.map((tab) => (
             <button
               className={activeView === tab ? 'active' : ''}
+              aria-current={activeView === tab ? 'page' : undefined}
               key={tab}
               onClick={() => setView(tab)}
               type="button"
@@ -449,23 +450,29 @@ function App() {
               </div>
               <label>
                 Full Name
-                <input name="fullName" required />
+                <input autoComplete="name" name="fullName" placeholder="Customer full name" required />
               </label>
               <label>
                 Email Address
-                <input name="email" required type="email" />
+                <input
+                  autoComplete="email"
+                  name="email"
+                  placeholder="customer@example.com"
+                  required
+                  type="email"
+                />
               </label>
               <label>
                 Phone Number
-                <input name="phone" type="tel" />
+                <input autoComplete="tel" name="phone" placeholder="Customer phone number" type="tel" />
               </label>
               <label>
                 Refund Reference Number
-                <input name="referenceNumber" required />
+                <input name="referenceNumber" placeholder="Refund reference" required />
               </label>
               <label>
                 Order Number
-                <input name="orderNumber" required />
+                <input name="orderNumber" placeholder="Order number" required />
               </label>
               <label>
                 Purchase Date
@@ -564,14 +571,14 @@ function App() {
                     <tbody>
                       {filteredRequests.map((request) => (
                         <tr key={request.id}>
-                          <td>{request.reference_number}</td>
-                          <td>{request.customers?.full_name ?? 'Unknown'}</td>
-                          <td>{request.order_number}</td>
-                          <td>${Number(request.amount_requested).toFixed(2)}</td>
-                          <td>
+                          <td data-label="Request">{request.reference_number}</td>
+                          <td data-label="Customer">{request.customers?.full_name ?? 'Unknown'}</td>
+                          <td data-label="Order">{request.order_number}</td>
+                          <td data-label="Amount">${Number(request.amount_requested).toFixed(2)}</td>
+                          <td data-label="Status">
                             <span className="status-pill">{formatStatus(request.status)}</span>
                           </td>
-                          <td>{request.assigned_to ?? 'Unassigned'}</td>
+                          <td data-label="Owner">{request.assigned_to ?? 'Unassigned'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -650,11 +657,11 @@ function App() {
               </div>
               <label>
                 Beneficiary Name
-                <input />
+                <input placeholder="Beneficiary name" />
               </label>
               <label>
                 Transaction Reference
-                <input />
+                <input placeholder="Transaction reference" />
               </label>
               <label>
                 Payment Amount
