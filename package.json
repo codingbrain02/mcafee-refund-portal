@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "create:admin": "node scripts/create-admin-user.mjs"
+    "create:admin": "node scripts/create-admin-user.mjs",
+    "db:push": "node scripts/supabase-db-push.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",
