@@ -28,6 +28,15 @@ export type RefundRequestRow = {
   } | null
 }
 
+export type CustomerRow = {
+  id: string
+  full_name: string
+  email: string
+  phone: string | null
+  created_by: string | null
+  created_at: string
+}
+
 const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabaseUrl = normalizeSupabaseUrl(rawSupabaseUrl)

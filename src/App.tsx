@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
+  type CustomerRow,
   hasSupabaseConfig,
   supabase,
   type RefundRequestRow,
@@ -58,6 +59,7 @@ function App() {
   const [refundAmount, setRefundAmount] = useState('')
   const [otpEnabled, setOtpEnabled] = useState(true)
   const [requests, setRequests] = useState<RefundRequestRow[]>([])
+  const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
 
   const allowedViews = useMemo(() => getAllowedViews(profile?.role), [profile])
@@ -112,6 +114,12 @@ function App() {
     }
   }, [profile])
 
+  useEffect(() => {
+    if (profile?.role === 'administrator') {
+      void loadCustomers()
+    }
+  }, [profile?.role])
+
   const managerStats = useMemo(() => {
     const newRequests = requests.filter((request) => request.status === 'submitted').length
     const pending = requests.filter((request) =>
@@ -155,6 +163,7 @@ function App() {
     if (!supabase || !userId) {
       setProfile(null)
       setRequests([])
+      setCustomers([])
       return
     }
 
@@ -226,6 +235,23 @@ function App() {
           : request.customers,
       })) as RefundRequestRow[],
     )
+  }
+
+  async function loadCustomers() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, full_name, email, phone, created_by, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setCustomers((data ?? []) as CustomerRow[])
   }
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -362,6 +388,7 @@ function App() {
     await supabase.auth.signOut()
     setProfile(null)
     setRequests([])
+    setCustomers([])
     setView('customer')
     setNotice({ kind: 'info', message: 'Signed out.' })
   }
@@ -537,7 +564,7 @@ function App() {
               </button>
             </div>
           </form>
-        ) : (
+        ) : !profile ? (
           <form
             className="login-card"
             onSubmit={authMode === 'sign-up' ? handleSignUp : handleSignIn}
@@ -624,6 +651,11 @@ function App() {
               </div>
             )}
           </form>
+        ) : (
+          <div className="account-summary">
+            <span>Active session</span>
+            <strong>{profile.role.replace('_', ' ')}</strong>
+          </div>
         )}
 
         {profile && (
@@ -898,38 +930,77 @@ function App() {
 
         {activeView === 'admin' && (
           <section className="content-grid">
-            <section className="work-card admin-grid">
-              <div className="section-heading full-span">
-                <p className="eyebrow">Administrator dashboard</p>
-                <h2>Controls</h2>
-              </div>
-              {[
-                'User management',
-                'Role management',
-                'Permission management',
-                'System configuration',
-                'Notification settings',
-                'Dashboard analytics',
-              ].map((item) => (
-                <button key={item} type="button">
-                  {item}
+            <section className="work-card">
+              <div className="section-heading row-heading">
+                <div>
+                  <p className="eyebrow">Administrator dashboard</p>
+                  <h2>Registered customers</h2>
+                </div>
+                <button onClick={loadCustomers} type="button">
+                  Refresh
                 </button>
-              ))}
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Phone</th>
+                      <th>Registered</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customers.map((customer) => (
+                      <tr key={customer.id}>
+                        <td data-label="Name">{customer.full_name}</td>
+                        <td data-label="Email">{customer.email}</td>
+                        <td data-label="Phone">{customer.phone ?? 'Not provided'}</td>
+                        <td data-label="Registered">{formatDate(customer.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {customers.length === 0 && (
+                  <p className="empty-state">No registered customers yet.</p>
+                )}
+              </div>
             </section>
 
-            <aside className="work-card">
-              <div className="section-heading">
-                <p className="eyebrow">Immutable audit log</p>
-                <h2>Recent events</h2>
-              </div>
-              <ol className="audit-list">
-                {auditEvents.map((event) => (
-                  <li key={event}>{event}</li>
+            <aside className="admin-side-stack">
+              <section className="work-card admin-grid">
+                <div className="section-heading full-span">
+                  <p className="eyebrow">Administrator controls</p>
+                  <h2>System access</h2>
+                </div>
+                {[
+                  'User management',
+                  'Role management',
+                  'Permission management',
+                  'System configuration',
+                  'Notification settings',
+                  'Dashboard analytics',
+                ].map((item) => (
+                  <button key={item} type="button">
+                    {item}
+                  </button>
                 ))}
-              </ol>
-              {auditEvents.length === 0 && (
-                <p className="empty-state">No audit events yet.</p>
-              )}
+              </section>
+
+              <section className="work-card">
+                <div className="section-heading">
+                  <p className="eyebrow">Immutable audit log</p>
+                  <h2>Recent events</h2>
+                </div>
+                <ol className="audit-list">
+                  {auditEvents.map((event) => (
+                    <li key={event}>{event}</li>
+                  ))}
+                </ol>
+                {auditEvents.length === 0 && (
+                  <p className="empty-state">No audit events yet.</p>
+                )}
+              </section>
             </aside>
           </section>
         )}

@@ -150,6 +150,27 @@ td,
   cursor: pointer;
 }
 
+.account-summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.account-summary span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.account-summary strong {
+  color: var(--text);
+  text-transform: capitalize;
+}
+
 .notice {
   margin: 0;
   padding: 12px;
@@ -568,6 +589,11 @@ td {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.admin-side-stack {
+  display: grid;
+  gap: 18px;
 }
 
 .audit-list {
