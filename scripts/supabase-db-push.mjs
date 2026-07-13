@@ -3,7 +3,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const envPath = resolve(process.cwd(), '.env')
-const env = { ...process.env }
+const env = Object.fromEntries(
+  Object.entries(process.env)
+    .filter(([key, value]) => key && !key.startsWith('=') && value !== undefined)
+    .map(([key, value]) => [key, String(value)]),
+)
 
 if (existsSync(envPath)) {
   const lines = readFileSync(envPath, 'utf8').split(/\r?\n/)
@@ -20,7 +24,7 @@ if (existsSync(envPath)) {
     const rawValue = trimmed.slice(separatorIndex + 1).trim()
     const value = rawValue.replace(/^["']|["']$/g, '')
 
-    if (key && !env[key]) {
+    if (key && !key.startsWith('=') && !env[key]) {
       env[key] = value
     }
   }
@@ -32,9 +36,28 @@ if (!env.SUPABASE_DB_PASSWORD) {
   process.exit(1)
 }
 
-const command = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-const child = spawn(command, ['supabase', 'db', 'push', '--linked'], {
-  env,
+const command = process.platform === 'win32' ? 'cmd.exe' : 'npx'
+const args = process.platform === 'win32'
+  ? ['/d', '/s', '/c', 'npx supabase db push --linked']
+  : ['supabase', 'db', 'push', '--linked']
+const childEnv = process.platform === 'win32'
+  ? {
+      APPDATA: env.APPDATA,
+      ComSpec: env.ComSpec,
+      LOCALAPPDATA: env.LOCALAPPDATA,
+      Path: env.Path ?? env.PATH,
+      SYSTEMROOT: env.SYSTEMROOT,
+      TEMP: env.TEMP,
+      TMP: env.TMP,
+      USERPROFILE: env.USERPROFILE,
+      SUPABASE_DB_PASSWORD: env.SUPABASE_DB_PASSWORD,
+    }
+  : env
+const safeChildEnv = Object.fromEntries(
+  Object.entries(childEnv).filter(([, value]) => value !== undefined),
+)
+const child = spawn(command, args, {
+  env: safeChildEnv,
   shell: false,
   stdio: 'inherit',
 })
