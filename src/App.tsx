@@ -1601,7 +1601,11 @@ function App() {
               <aside className="work-card">
                 <div className="section-heading">
                   <p className="eyebrow">Notes & internal comments</p>
-                  <h2>{selectedRequest ? selectedRequest.reference_number : 'Activity timeline'}</h2>
+                  <h2>
+                    {selectedRequest
+                      ? `Reference number: ${selectedRequest.reference_number}`
+                      : 'Activity timeline'}
+                  </h2>
                 </div>
                 <textarea
                   onChange={(event) => setInternalNote(event.target.value)}
