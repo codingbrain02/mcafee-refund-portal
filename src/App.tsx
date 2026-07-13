@@ -78,6 +78,9 @@ function App() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [customerDialog, setCustomerDialog] = useState<Notice | null>(null)
+  const [deleteTargetUser, setDeleteTargetUser] = useState<UserAccountRow | null>(null)
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('')
+  const [isDeletingUser, setIsDeletingUser] = useState(false)
   const [isSessionRestoring, setIsSessionRestoring] = useState(hasSupabaseConfig)
   const [notice, setNotice] = useState<Notice>({
     kind: hasSupabaseConfig ? 'info' : 'error',
@@ -338,6 +341,11 @@ function App() {
     [users],
   )
 
+  const pendingVerificationAccounts = useMemo(
+    () => users.filter((user) => getVerificationStatus(user) === 'pending'),
+    [users],
+  )
+
   const usersById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users],
@@ -347,10 +355,10 @@ function App() {
     () => [
       ['User accounts', String(users.length)],
       ['Customer accounts', String(registeredCustomerAccounts.length)],
+      ['Pending verification', String(pendingVerificationAccounts.length)],
       ['Audit events', String(auditLogs.length)],
-      ['Payment records', String(paymentTransactions.length)],
     ],
-    [auditLogs.length, paymentTransactions.length, registeredCustomerAccounts.length, users.length],
+    [auditLogs.length, pendingVerificationAccounts.length, registeredCustomerAccounts.length, users.length],
   )
 
   const paymentEta = useMemo(() => {
@@ -447,7 +455,9 @@ function App() {
 
     const { data, error } = await supabase
       .from('users')
-      .select('id, role, full_name, email, mfa_required, locked_until, created_at')
+      .select(
+        'id, role, full_name, email, mfa_required, locked_until, email_confirmed_at, verification_status, verification_expires_at, created_at',
+      )
       .order('created_at', { ascending: false })
       .limit(100)
 
@@ -967,6 +977,51 @@ function App() {
     await logAudit('user_mfa_updated', 'user', user.id, { required })
     await loadUsers()
     setNotice({ kind: 'success', message: 'MFA setting updated.' })
+  }
+
+  async function handleDeleteUserAccount() {
+    if (!supabase || !profile || !deleteTargetUser) return
+
+    if (isHeadAdministrator(deleteTargetUser.email)) {
+      setNotice({
+        kind: 'info',
+        message: 'The head administrator account is protected and cannot be deleted.',
+      })
+      return
+    }
+
+    if (deleteTargetUser.id === profile.id) {
+      setNotice({ kind: 'error', message: 'You cannot delete the account for the active session.' })
+      return
+    }
+
+    if (deleteConfirmationText !== 'Delete user account') {
+      setNotice({
+        kind: 'error',
+        message: 'Type Delete user account exactly to confirm this action.',
+      })
+      return
+    }
+
+    setIsDeletingUser(true)
+
+    const { error } = await supabase.rpc('delete_user_account', {
+      confirmation: deleteConfirmationText,
+      target_user_id: deleteTargetUser.id,
+    })
+
+    setIsDeletingUser(false)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await loadUsers()
+    await loadAuditLogs()
+    setDeleteTargetUser(null)
+    setDeleteConfirmationText('')
+    setNotice({ kind: 'success', message: `${deleteTargetUser.email} was deleted from the portal.` })
   }
 
   async function handleCreatePayment() {
@@ -1682,53 +1737,91 @@ function App() {
                         <tr>
                           <th>Name</th>
                           <th>Email</th>
+                          <th>Status</th>
                           <th>Role</th>
                           <th>MFA</th>
                           <th>Created</th>
+                          <th>Action</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {users.map((user) => (
-                          <tr key={user.id}>
-                            <td data-label="Name">
-                              <div className="user-name-cell">
-                                <span>{user.full_name}</span>
-                                {isHeadAdministrator(user.email) && (
-                                  <span className="protected-badge">Head administrator</span>
-                                )}
-                              </div>
-                            </td>
-                            <td data-label="Email">{user.email}</td>
-                            <td data-label="Role">
-                              <select
-                                aria-label={`Role for ${user.full_name}`}
-                                disabled={isHeadAdministrator(user.email)}
-                                onChange={(event) =>
-                                  void handleUpdateUserRole(user, event.target.value as UserRole)
-                                }
-                                value={user.role}
-                              >
-                                <option value="customer">Customer</option>
-                                <option value="refund_manager">Refund manager</option>
-                                <option value="administrator">Administrator</option>
-                              </select>
-                            </td>
-                            <td data-label="MFA">
-                              <label className="inline-check">
-                                <input
-                                  checked={user.mfa_required}
+                        {users.map((user) => {
+                          const verificationStatus = getVerificationStatus(user)
+                          const deleteDisabled =
+                            isHeadAdministrator(user.email) || user.id === profile?.id
+
+                          return (
+                            <tr key={user.id}>
+                              <td data-label="Name">
+                                <div className="user-name-cell">
+                                  <span>{user.full_name}</span>
+                                  {isHeadAdministrator(user.email) && (
+                                    <span className="protected-badge">Head administrator</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td data-label="Email">{user.email}</td>
+                              <td data-label="Status">
+                                <div className="status-cell">
+                                  <span className={`verification-badge ${verificationStatus}`}>
+                                    {verificationStatus === 'verified'
+                                      ? 'Verified'
+                                      : 'Pending verification'}
+                                  </span>
+                                  {verificationStatus === 'pending' && user.verification_expires_at && (
+                                    <small>Expires {formatDate(user.verification_expires_at)}</small>
+                                  )}
+                                </div>
+                              </td>
+                              <td data-label="Role">
+                                <select
+                                  aria-label={`Role for ${user.full_name}`}
                                   disabled={isHeadAdministrator(user.email)}
                                   onChange={(event) =>
-                                    void handleToggleMfa(user, event.target.checked)
+                                    void handleUpdateUserRole(user, event.target.value as UserRole)
                                   }
-                                  type="checkbox"
-                                />
-                                Required
-                              </label>
-                            </td>
-                            <td data-label="Created">{formatDate(user.created_at)}</td>
-                          </tr>
-                        ))}
+                                  value={user.role}
+                                >
+                                  <option value="customer">Customer</option>
+                                  <option value="refund_manager">Refund manager</option>
+                                  <option value="administrator">Administrator</option>
+                                </select>
+                              </td>
+                              <td data-label="MFA">
+                                <label className="inline-check">
+                                  <input
+                                    checked={user.mfa_required}
+                                    disabled={isHeadAdministrator(user.email)}
+                                    onChange={(event) =>
+                                      void handleToggleMfa(user, event.target.checked)
+                                    }
+                                    type="checkbox"
+                                  />
+                                  Required
+                                </label>
+                              </td>
+                              <td data-label="Created">{formatDate(user.created_at)}</td>
+                              <td data-label="Action">
+                                <button
+                                  className="table-action-button danger"
+                                  disabled={deleteDisabled}
+                                  onClick={() => {
+                                    setDeleteTargetUser(user)
+                                    setDeleteConfirmationText('')
+                                  }}
+                                  title={
+                                    deleteDisabled
+                                      ? 'Protected or active-session account'
+                                      : 'Delete this user account'
+                                  }
+                                  type="button"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                     {users.length === 0 && <p className="empty-state">No user accounts yet.</p>}
@@ -1749,6 +1842,7 @@ function App() {
                         <tr>
                           <th>Name</th>
                           <th>Email</th>
+                          <th>Status</th>
                           <th>Role</th>
                           <th>Joined</th>
                         </tr>
@@ -1758,6 +1852,13 @@ function App() {
                           <tr key={customer.id}>
                             <td data-label="Name">{customer.full_name}</td>
                             <td data-label="Email">{customer.email}</td>
+                            <td data-label="Status">
+                              <span className={`verification-badge ${getVerificationStatus(customer)}`}>
+                                {getVerificationStatus(customer) === 'verified'
+                                  ? 'Verified'
+                                  : 'Pending verification'}
+                              </span>
+                            </td>
                             <td data-label="Role">{customer.role.replace('_', ' ')}</td>
                             <td data-label="Joined">{formatDate(customer.created_at)}</td>
                           </tr>
@@ -1978,6 +2079,55 @@ function App() {
           </section>
         </div>
       )}
+
+      {deleteTargetUser && (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="delete-user-dialog-title"
+            aria-modal="true"
+            className="customer-dialog danger"
+            role="dialog"
+          >
+            <div>
+              <p className="eyebrow">Administrator action</p>
+              <h2 id="delete-user-dialog-title">Delete user account</h2>
+            </div>
+            <p>
+              This permanently removes {deleteTargetUser.email} and related portal records. Type{' '}
+              <strong>Delete user account</strong> to confirm.
+            </p>
+            <input
+              aria-label="Delete confirmation text"
+              className="delete-confirm-input"
+              onChange={(event) => setDeleteConfirmationText(event.target.value)}
+              placeholder="Delete user account"
+              value={deleteConfirmationText}
+            />
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setDeleteTargetUser(null)
+                  setDeleteConfirmationText('')
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                disabled={
+                  isDeletingUser || deleteConfirmationText !== 'Delete user account'
+                }
+                onClick={() => void handleDeleteUserAccount()}
+                type="button"
+              >
+                {isDeletingUser ? 'Deleting...' : 'Delete account'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }
@@ -2054,6 +2204,10 @@ function isManagerWorkflowTarget(status: RefundStatus): status is ManagerWorkflo
 
 function isHeadAdministrator(email: string) {
   return email.trim().toLowerCase() === headAdministratorEmail
+}
+
+function getVerificationStatus(user: UserAccountRow) {
+  return user.email_confirmed_at || user.verification_status === 'verified' ? 'verified' : 'pending'
 }
 
 function formatStatus(status: string) {

@@ -230,6 +230,45 @@ td,
   border-top: 4px solid #dc2626;
 }
 
+.customer-dialog.danger {
+  border-top: 4px solid #b91c1c;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.delete-confirm-input {
+  min-height: 44px;
+}
+
+.secondary-button,
+.danger-button,
+.table-action-button {
+  min-height: 38px;
+  border-radius: 7px;
+}
+
+.secondary-button {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--text);
+}
+
+.danger-button,
+.table-action-button.danger {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.danger-button:not(:disabled):hover,
+.table-action-button.danger:not(:disabled):hover {
+  background: #fee2e2;
+}
+
 .customer-dialog h2 {
   font-size: 1.35rem;
 }
@@ -639,6 +678,39 @@ tbody tr.selected-row {
   color: #15803d;
   font-size: 0.76rem;
   font-weight: 750;
+}
+
+.status-cell {
+  display: grid;
+  gap: 6px;
+}
+
+.status-cell small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.verification-badge {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 26px;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.verification-badge.verified {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.verification-badge.pending {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
 }
 
 .setup-list {

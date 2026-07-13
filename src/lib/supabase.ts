@@ -44,6 +44,9 @@ export type UserAccountRow = {
   email: string
   mfa_required: boolean
   locked_until: string | null
+  email_confirmed_at: string | null
+  verification_status: 'pending' | 'verified'
+  verification_expires_at: string | null
   created_at: string
 }
 
