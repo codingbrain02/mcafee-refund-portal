@@ -79,17 +79,25 @@ td,
   gap: 14px;
 }
 
-.link-button {
-  width: fit-content;
-  min-height: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
+.login-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.login-card .reset-password-button {
+  width: auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border-color: transparent;
+  background: var(--quiet);
   color: var(--accent);
-  font: inherit;
-  font-weight: 800;
-  text-align: left;
-  cursor: pointer;
+  font-weight: 650;
 }
 
 .session-card {
@@ -104,7 +112,7 @@ td,
 .session-card small {
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .session-card button {
@@ -115,7 +123,7 @@ td,
   background: #ffffff;
   color: var(--text);
   font: inherit;
-  font-weight: 800;
+  font-weight: 650;
   cursor: pointer;
 }
 
@@ -124,7 +132,7 @@ td,
   padding: 12px;
   border-radius: 8px;
   font-size: 0.88rem;
-  font-weight: 800;
+  font-weight: 650;
   line-height: 1.35;
 }
 
@@ -158,8 +166,8 @@ td,
   margin: 0 0 8px;
   color: var(--accent);
   font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: 650;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -172,13 +180,13 @@ p {
 h1 {
   max-width: 760px;
   margin-bottom: 0;
-  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-size: 3rem;
   line-height: 1.02;
 }
 
 h2 {
   margin-bottom: 0;
-  font-size: clamp(1.08rem, 2vw, 1.25rem);
+  font-size: 1.2rem;
   line-height: 1.16;
 }
 
@@ -202,7 +210,7 @@ h2 {
   background: #ffffff;
   color: var(--text);
   font: inherit;
-  font-weight: 800;
+  font-weight: 650;
   cursor: pointer;
 }
 
@@ -256,7 +264,7 @@ button:disabled {
 }
 
 .metric-card strong {
-  font-size: clamp(1.7rem, 3vw, 2.1rem);
+  font-size: 2rem;
   line-height: 1;
 }
 
@@ -302,7 +310,7 @@ label {
   min-width: 0;
   color: var(--text);
   font-size: 0.9rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 input,
@@ -371,7 +379,7 @@ textarea:focus {
   border-radius: 999px;
   background: var(--quiet);
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .table-wrap {
@@ -384,7 +392,7 @@ textarea:focus {
   margin: 0;
   padding: 16px;
   border-top: 1px solid var(--border);
-  font-weight: 800;
+  font-weight: 650;
 }
 
 table {
@@ -403,7 +411,7 @@ td {
 th {
   color: var(--muted);
   font-size: 0.76rem;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -412,7 +420,7 @@ tbody tr:last-child td {
 }
 
 td {
-  font-weight: 700;
+  font-weight: 600;
   vertical-align: top;
 }
 
@@ -457,7 +465,7 @@ td {
   background: #ffffff;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .admin-grid {
@@ -486,7 +494,7 @@ td {
 
 .summary-list dd {
   margin: 0;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .toggle-row {
@@ -642,8 +650,8 @@ td {
     content: attr(data-label);
     color: var(--muted);
     font-size: 0.76rem;
-    font-weight: 900;
-    letter-spacing: 0.04em;
+    font-weight: 650;
+    letter-spacing: 0;
     text-transform: uppercase;
   }
 

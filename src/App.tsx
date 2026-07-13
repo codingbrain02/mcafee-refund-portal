@@ -43,8 +43,8 @@ function App() {
   const [notice, setNotice] = useState<Notice>({
     kind: hasSupabaseConfig ? 'info' : 'error',
     message: hasSupabaseConfig
-      ? 'Sign in to load role-based data from Supabase.'
-      : 'Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.',
+      ? 'Sign in to access the refund portal.'
+      : 'Portal configuration is incomplete.',
   })
   const [isAuthLoading, setIsAuthLoading] = useState(false)
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
@@ -150,8 +150,7 @@ function App() {
       const { data: authUser } = await supabase.auth.getUser()
       setNotice({
         kind: 'error',
-        message:
-          'Signed in, but no matching public user profile exists. Add this user to public.users.',
+        message: 'Signed in, but no matching user profile exists. Contact an administrator.',
       })
       setProfile({
         id: userId,
@@ -226,7 +225,7 @@ function App() {
     setNotice(
       error
         ? { kind: 'error', message: error.message }
-        : { kind: 'success', message: 'Password reset email requested.' },
+        : { kind: 'success', message: 'Password reset email sent.' },
     )
   }
 
@@ -345,7 +344,7 @@ function App() {
     setRefundAmount('')
     setNotice({
       kind: 'success',
-      message: `Refund request ${referenceNumber} submitted to Supabase.`,
+      message: `Refund request ${referenceNumber} submitted.`,
     })
     await loadRefundRequests()
   }
@@ -400,9 +399,12 @@ function App() {
           <button disabled={!hasSupabaseConfig || isAuthLoading} type="submit">
             {isAuthLoading ? 'Signing in...' : 'Sign in'}
           </button>
-          <button className="link-button" onClick={handlePasswordReset} type="button">
-            Forgot Password
-          </button>
+          <div className="login-actions">
+            <span>Need access help?</span>
+            <button className="reset-password-button" onClick={handlePasswordReset} type="button">
+              Reset password
+            </button>
+          </div>
         </form>
 
         {profile && (
