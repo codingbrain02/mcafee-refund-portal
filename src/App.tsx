@@ -354,7 +354,13 @@ function App() {
     <main className="app-shell">
       <section className="login-panel" aria-label="Secure employee login">
         <div className="brand-lockup">
-          <span className="brand-mark">M</span>
+          <img
+            alt="McAfee"
+            className="brand-mark"
+            height="44"
+            src="/mcafee-icon.png"
+            width="44"
+          />
           <div>
             <strong>McAfee Refund Processing Portal</strong>
             <small>For authorized customer refund operations</small>
