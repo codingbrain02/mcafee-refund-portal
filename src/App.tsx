@@ -61,6 +61,7 @@ function App() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [customerDialog, setCustomerDialog] = useState<Notice | null>(null)
+  const [isSessionRestoring, setIsSessionRestoring] = useState(hasSupabaseConfig)
   const [notice, setNotice] = useState<Notice>({
     kind: hasSupabaseConfig ? 'info' : 'error',
     message: hasSupabaseConfig
@@ -105,10 +106,16 @@ function App() {
         setNotice({ kind: 'info', message: 'Create a new password to finish account recovery.' })
       }
 
-      const { data } = await auth.getSession()
-      if (!isMounted) return
-      if (isRecoveringPassword) return
-      await loadProfile(data.session?.user.id ?? null)
+      try {
+        const { data } = await auth.getSession()
+        if (!isMounted) return
+        if (isRecoveringPassword) return
+        await loadProfile(data.session?.user.id ?? null)
+      } finally {
+        if (isMounted) {
+          setIsSessionRestoring(false)
+        }
+      }
     }
 
     const {
@@ -116,13 +123,21 @@ function App() {
     } = auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsPasswordRecovery(true)
+        setIsSessionRestoring(false)
         setProfile(null)
         setRequests([])
         setNotice({ kind: 'info', message: 'Create a new password to finish account recovery.' })
         return
       }
 
-      void loadProfile(session?.user.id ?? null)
+      if (session?.user.id) {
+        setIsSessionRestoring(true)
+        void loadProfile(session.user.id).finally(() => setIsSessionRestoring(false))
+        return
+      }
+
+      setIsSessionRestoring(false)
+      void loadProfile(null)
     })
 
     void loadSession()
@@ -1087,6 +1102,12 @@ function App() {
               </button>
             </div>
           </form>
+        ) : isSessionRestoring ? (
+          <div className="account-summary session-restore-card">
+            <span>Restoring session</span>
+            <strong>Checking saved access</strong>
+            <small>You will stay signed in on this browser.</small>
+          </div>
         ) : !profile ? (
           <form
             className="login-card"

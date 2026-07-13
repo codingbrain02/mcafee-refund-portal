@@ -171,6 +171,12 @@ td,
   text-transform: capitalize;
 }
 
+.session-restore-card small {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
 .notice {
   margin: 0;
   padding: 12px;
