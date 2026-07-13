@@ -40,6 +40,9 @@ function App() {
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [otpCode, setOtpCode] = useState('')
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [notice, setNotice] = useState<Notice>({
     kind: hasSupabaseConfig ? 'info' : 'error',
     message: hasSupabaseConfig
@@ -47,6 +50,7 @@ function App() {
       : 'Portal configuration is incomplete.',
   })
   const [isAuthLoading, setIsAuthLoading] = useState(false)
+  const [isResetLoading, setIsResetLoading] = useState(false)
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
   const [refundAmount, setRefundAmount] = useState('')
   const [otpEnabled, setOtpEnabled] = useState(true)
@@ -64,14 +68,30 @@ function App() {
     let isMounted = true
 
     async function loadSession() {
+      const isRecoveringPassword = isRecoveryUrl()
+
+      if (isRecoveringPassword) {
+        setIsPasswordRecovery(true)
+        setNotice({ kind: 'info', message: 'Create a new password to finish account recovery.' })
+      }
+
       const { data } = await auth.getSession()
       if (!isMounted) return
+      if (isRecoveringPassword) return
       await loadProfile(data.session?.user.id ?? null)
     }
 
     const {
       data: { subscription },
-    } = auth.onAuthStateChange((_event, session) => {
+    } = auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true)
+        setProfile(null)
+        setRequests([])
+        setNotice({ kind: 'info', message: 'Create a new password to finish account recovery.' })
+        return
+      }
+
       void loadProfile(session?.user.id ?? null)
     })
 
@@ -216,17 +236,72 @@ function App() {
   }
 
   async function handlePasswordReset() {
-    if (!supabase || !authEmail) {
-      setNotice({ kind: 'error', message: 'Enter your email before requesting reset.' })
+    const email = authEmail.trim().toLowerCase()
+
+    if (!supabase || !email) {
+      setNotice({ kind: 'error', message: 'Enter your email before requesting a reset link.' })
       return
     }
 
-    const { error } = await supabase.auth.resetPasswordForEmail(authEmail)
+    const redirectTo = getPasswordResetRedirectUrl()
+
+    setIsResetLoading(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+    setIsResetLoading(false)
+
     setNotice(
       error
         ? { kind: 'error', message: error.message }
-        : { kind: 'success', message: 'Password reset email sent.' },
+        : { kind: 'success', message: 'Password reset email sent. Check your inbox.' },
     )
+  }
+
+  async function handlePasswordUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!supabase) return
+
+    if (newPassword.length < 8) {
+      setNotice({ kind: 'error', message: 'Password must be at least 8 characters.' })
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setNotice({ kind: 'error', message: 'Passwords do not match.' })
+      return
+    }
+
+    setIsResetLoading(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    setIsResetLoading(false)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setIsPasswordRecovery(false)
+    setNewPassword('')
+    setConfirmPassword('')
+    setAuthPassword('')
+    clearRecoveryUrl()
+    await supabase.auth.signOut()
+    setProfile(null)
+    setRequests([])
+    setNotice({ kind: 'success', message: 'Password updated. Sign in with your new password.' })
+  }
+
+  async function handleCancelPasswordRecovery() {
+    setIsPasswordRecovery(false)
+    setNewPassword('')
+    setConfirmPassword('')
+    clearRecoveryUrl()
+
+    if (supabase) {
+      await supabase.auth.signOut()
+    }
+
+    setNotice({ kind: 'info', message: 'Sign in to access the refund portal.' })
   }
 
   async function handleSignOut() {
@@ -366,46 +441,91 @@ function App() {
           </div>
         </div>
 
-        <form className="login-card" onSubmit={handleSignIn}>
-          <label>
-            Email
-            <input
-              autoComplete="username"
-              onChange={(event) => setAuthEmail(event.target.value)}
-              required
-              type="email"
-              value={authEmail}
-            />
-          </label>
-          <label>
-            Password
-            <input
-              autoComplete="current-password"
-              onChange={(event) => setAuthPassword(event.target.value)}
-              required
-              type="password"
-              value={authPassword}
-            />
-          </label>
-          <label>
-            Two-factor authentication (OTP)
-            <input
-              inputMode="numeric"
-              onChange={(event) => setOtpCode(event.target.value)}
-              placeholder="6-digit code"
-              value={otpCode}
-            />
-          </label>
-          <button disabled={!hasSupabaseConfig || isAuthLoading} type="submit">
-            {isAuthLoading ? 'Signing in...' : 'Sign in'}
-          </button>
-          <div className="login-actions">
-            <span>Need access help?</span>
-            <button className="reset-password-button" onClick={handlePasswordReset} type="button">
-              Reset password
+        {isPasswordRecovery ? (
+          <form className="login-card" onSubmit={handlePasswordUpdate}>
+            <label>
+              New password
+              <input
+                autoComplete="new-password"
+                minLength={8}
+                onChange={(event) => setNewPassword(event.target.value)}
+                required
+                type="password"
+                value={newPassword}
+              />
+            </label>
+            <label>
+              Confirm password
+              <input
+                autoComplete="new-password"
+                minLength={8}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                type="password"
+                value={confirmPassword}
+              />
+            </label>
+            <button disabled={!hasSupabaseConfig || isResetLoading} type="submit">
+              {isResetLoading ? 'Updating...' : 'Update password'}
             </button>
-          </div>
-        </form>
+            <div className="login-actions">
+              <span>Return to employee login</span>
+              <button
+                className="reset-password-button"
+                onClick={handleCancelPasswordRecovery}
+                type="button"
+              >
+                Back to sign in
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form className="login-card" onSubmit={handleSignIn}>
+            <label>
+              Email
+              <input
+                autoComplete="username"
+                onChange={(event) => setAuthEmail(event.target.value)}
+                required
+                type="email"
+                value={authEmail}
+              />
+            </label>
+            <label>
+              Password
+              <input
+                autoComplete="current-password"
+                onChange={(event) => setAuthPassword(event.target.value)}
+                required
+                type="password"
+                value={authPassword}
+              />
+            </label>
+            <label>
+              Two-factor authentication (OTP)
+              <input
+                inputMode="numeric"
+                onChange={(event) => setOtpCode(event.target.value)}
+                placeholder="6-digit code"
+                value={otpCode}
+              />
+            </label>
+            <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
+              {isAuthLoading ? 'Signing in...' : 'Sign in'}
+            </button>
+            <div className="login-actions">
+              <span>Need access help?</span>
+              <button
+                className="reset-password-button"
+                disabled={isResetLoading}
+                onClick={handlePasswordReset}
+                type="button"
+              >
+                {isResetLoading ? 'Sending...' : 'Reset password'}
+              </button>
+            </div>
+          </form>
+        )}
 
         {profile && (
           <div className="session-card">
@@ -762,6 +882,20 @@ function formatStatus(status: string) {
     .split('_')
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function getPasswordResetRedirectUrl() {
+  return `${window.location.origin}${window.location.pathname}?password-reset=1`
+}
+
+function isRecoveryUrl() {
+  const recoveryUrl = `${window.location.search}${window.location.hash}`
+
+  return recoveryUrl.includes('password-reset=1') || recoveryUrl.includes('type=recovery')
+}
+
+function clearRecoveryUrl() {
+  window.history.replaceState(null, '', window.location.pathname)
 }
 
 export default App
