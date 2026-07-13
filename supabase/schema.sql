@@ -167,6 +167,53 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_auth_user();
 
+create or replace function public.protect_head_administrator()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' and lower(new.email) = 'jccodingbrain@gmail.com' then
+    new.role := 'administrator';
+    new.full_name := 'Portal Administrator';
+    new.mfa_required := true;
+    new.locked_until := null;
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if lower(old.email) = 'jccodingbrain@gmail.com' then
+      raise exception 'The head administrator account cannot be changed.';
+    end if;
+
+    if lower(new.email) = 'jccodingbrain@gmail.com' then
+      raise exception 'The head administrator email is reserved.';
+    end if;
+
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' and lower(old.email) = 'jccodingbrain@gmail.com' then
+    raise exception 'The head administrator account cannot be deleted.';
+  end if;
+
+  return old;
+end;
+$$;
+
+create trigger protect_head_administrator_insert
+before insert on public.users
+for each row execute function public.protect_head_administrator();
+
+create trigger protect_head_administrator_update
+before update on public.users
+for each row execute function public.protect_head_administrator();
+
+create trigger protect_head_administrator_delete
+before delete on public.users
+for each row execute function public.protect_head_administrator();
+
 create policy "employees can view refund operations"
 on public.refund_requests
 for select

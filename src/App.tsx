@@ -42,6 +42,7 @@ const workflow = [
 ]
 
 const bankStatuses = ['queued', 'submitted', 'settled', 'failed']
+const headAdministratorEmail = 'jccodingbrain@gmail.com'
 
 const managerWorkflowActionRank: Record<ManagerWorkflowTarget, number> = {
   under_review: 1,
@@ -919,6 +920,14 @@ function App() {
   async function handleUpdateUserRole(user: UserAccountRow, role: UserRole) {
     if (!supabase || !profile) return
 
+    if (isHeadAdministrator(user.email)) {
+      setNotice({
+        kind: 'info',
+        message: 'The head administrator account is protected and cannot be changed.',
+      })
+      return
+    }
+
     const { error } = await supabase
       .from('users')
       .update({ role, updated_at: new Date().toISOString() })
@@ -936,6 +945,14 @@ function App() {
 
   async function handleToggleMfa(user: UserAccountRow, required: boolean) {
     if (!supabase) return
+
+    if (isHeadAdministrator(user.email)) {
+      setNotice({
+        kind: 'info',
+        message: 'The head administrator account is protected and cannot be changed.',
+      })
+      return
+    }
 
     const { error } = await supabase
       .from('users')
@@ -1673,11 +1690,19 @@ function App() {
                       <tbody>
                         {users.map((user) => (
                           <tr key={user.id}>
-                            <td data-label="Name">{user.full_name}</td>
+                            <td data-label="Name">
+                              <div className="user-name-cell">
+                                <span>{user.full_name}</span>
+                                {isHeadAdministrator(user.email) && (
+                                  <span className="protected-badge">Head administrator</span>
+                                )}
+                              </div>
+                            </td>
                             <td data-label="Email">{user.email}</td>
                             <td data-label="Role">
                               <select
                                 aria-label={`Role for ${user.full_name}`}
+                                disabled={isHeadAdministrator(user.email)}
                                 onChange={(event) =>
                                   void handleUpdateUserRole(user, event.target.value as UserRole)
                                 }
@@ -1692,6 +1717,7 @@ function App() {
                               <label className="inline-check">
                                 <input
                                   checked={user.mfa_required}
+                                  disabled={isHeadAdministrator(user.email)}
                                   onChange={(event) =>
                                     void handleToggleMfa(user, event.target.checked)
                                   }
@@ -1746,6 +1772,21 @@ function App() {
               </section>
 
               <aside className="admin-side-stack">
+                <section className="work-card">
+                  <div className="section-heading">
+                    <p className="eyebrow">Manager setup</p>
+                    <h2>Add a refund manager</h2>
+                  </div>
+                  <ol className="setup-list">
+                    <li>Create the person's account from the sign-up screen.</li>
+                    <li>Return here and find the account under User accounts.</li>
+                    <li>Change the role from Customer to Refund manager.</li>
+                  </ol>
+                  <p className="helper-copy">
+                    The head administrator account is locked as the absolute portal owner.
+                  </p>
+                </section>
+
                 <section className="work-card">
                   <div className="section-heading row-heading">
                     <div>
@@ -2009,6 +2050,10 @@ function getManagerWorkflowActionState(
 
 function isManagerWorkflowTarget(status: RefundStatus): status is ManagerWorkflowTarget {
   return status === 'under_review' || status === 'documents_verified' || status === 'approved'
+}
+
+function isHeadAdministrator(email: string) {
+  return email.trim().toLowerCase() === headAdministratorEmail
 }
 
 function formatStatus(status: string) {
