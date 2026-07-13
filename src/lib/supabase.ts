@@ -27,12 +27,13 @@ export type RefundRequestRow = {
   } | null
 }
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = normalizeSupabaseUrl(rawSupabaseUrl)
 
 export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey)
 
-export const supabase = hasSupabaseConfig
+export const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,
@@ -41,3 +42,7 @@ export const supabase = hasSupabaseConfig
       },
     })
   : null
+
+function normalizeSupabaseUrl(url: string | undefined) {
+  return url?.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '')
+}
