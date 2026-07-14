@@ -280,6 +280,71 @@ create trigger protect_head_administrator_delete
 before delete on public.users
 for each row execute function public.protect_head_administrator();
 
+create or replace function public.purge_user_owned_records(target_user_ids uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public, storage
+as $$
+begin
+  drop table if exists pg_temp.portal_deleted_users;
+  drop table if exists pg_temp.portal_deleted_requests;
+  drop table if exists pg_temp.portal_deleted_document_paths;
+
+  create temporary table portal_deleted_users on commit drop as
+  select distinct user_id as id
+  from unnest(target_user_ids) as user_id
+  where user_id is not null;
+
+  create temporary table portal_deleted_requests on commit drop as
+  select request.id
+  from public.refund_requests request
+  where request.created_by in (select id from portal_deleted_users)
+     or exists (
+       select 1
+       from public.customers customer
+       where customer.id = request.customer_id
+         and customer.created_by in (select id from portal_deleted_users)
+     );
+
+  create temporary table portal_deleted_document_paths on commit drop as
+  select distinct document.storage_path
+  from public.refund_documents document
+  where document.refund_request_id in (select id from portal_deleted_requests)
+     or document.uploaded_by in (select id from portal_deleted_users);
+
+  delete from storage.objects object
+  where object.bucket_id = 'refund-documents'
+    and object.name in (select storage_path from portal_deleted_document_paths);
+
+  delete from public.refund_requests
+  where id in (select id from portal_deleted_requests);
+
+  delete from public.refund_documents
+  where uploaded_by in (select id from portal_deleted_users);
+
+  delete from public.internal_notes
+  where author_id in (select id from portal_deleted_users);
+
+  delete from public.refund_status_history
+  where employee_id in (select id from portal_deleted_users);
+
+  update public.refund_requests
+  set assigned_to = null,
+      updated_at = now()
+  where assigned_to in (select id from portal_deleted_users);
+
+  delete from public.customers
+  where created_by in (select id from portal_deleted_users);
+
+  delete from public.audit_logs
+  where actor_id in (select id from portal_deleted_users)
+     or (entity_type = 'user' and entity_id in (select id from portal_deleted_users));
+end;
+$$;
+
+revoke all on function public.purge_user_owned_records(uuid[]) from public;
+
 create or replace function public.delete_user_account(target_user_id uuid, confirmation text)
 returns void
 language plpgsql
@@ -313,42 +378,15 @@ begin
     raise exception 'The head administrator account cannot be deleted.';
   end if;
 
-  delete from public.refund_requests request
-  where request.created_by = target_user_id
-     or exists (
-       select 1
-       from public.customers customer
-       where customer.id = request.customer_id
-         and customer.created_by = target_user_id
-     );
-
-  delete from public.refund_documents
-  where uploaded_by = target_user_id;
-
-  delete from public.internal_notes
-  where author_id = target_user_id;
-
-  delete from public.refund_status_history
-  where employee_id = target_user_id;
-
-  update public.refund_requests
-  set assigned_to = null,
-      updated_at = now()
-  where assigned_to = target_user_id;
-
-  delete from public.customers
-  where created_by = target_user_id;
-
-  delete from public.audit_logs
-  where actor_id = target_user_id;
+  perform public.purge_user_owned_records(array[target_user_id]);
 
   insert into public.audit_logs (actor_id, action, entity_type, entity_id, metadata)
   values (
     auth.uid(),
     'user_account_deleted',
-    'user',
-    target_user_id,
-    jsonb_build_object('email', target_email)
+    'user_account',
+    null,
+    jsonb_build_object('record_removed', true)
   );
 
   delete from auth.users
@@ -367,6 +405,7 @@ set search_path = public, auth
 as $$
 declare
   deleted_count integer;
+  expired_ids uuid[];
 begin
   drop table if exists pg_temp.expired_unverified_users;
 
@@ -377,37 +416,11 @@ begin
     and auth_user.created_at < now() - interval '5 days'
     and lower(auth_user.email) <> 'jccodingbrain@gmail.com';
 
-  select count(*) into deleted_count
+  select count(*), coalesce(array_agg(id), array[]::uuid[])
+  into deleted_count, expired_ids
   from expired_unverified_users;
 
-  delete from public.refund_requests request
-  where request.created_by in (select id from expired_unverified_users)
-     or exists (
-       select 1
-       from public.customers customer
-       where customer.id = request.customer_id
-         and customer.created_by in (select id from expired_unverified_users)
-     );
-
-  delete from public.refund_documents
-  where uploaded_by in (select id from expired_unverified_users);
-
-  delete from public.internal_notes
-  where author_id in (select id from expired_unverified_users);
-
-  delete from public.refund_status_history
-  where employee_id in (select id from expired_unverified_users);
-
-  update public.refund_requests
-  set assigned_to = null,
-      updated_at = now()
-  where assigned_to in (select id from expired_unverified_users);
-
-  delete from public.customers
-  where created_by in (select id from expired_unverified_users);
-
-  delete from public.audit_logs
-  where actor_id in (select id from expired_unverified_users);
+  perform public.purge_user_owned_records(expired_ids);
 
   delete from auth.users
   where id in (select id from expired_unverified_users);
