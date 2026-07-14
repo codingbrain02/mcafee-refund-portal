@@ -1613,7 +1613,7 @@ function App() {
                 </select>
               </label>
               <div className="product-preview full-span">
-                <img alt={activeAntivirus.label} src={activeAntivirus.logo} />
+                <img alt={activeAntivirus.label} src={activeAntivirus.icon} />
                 <div>
                   <span>Selected antivirus</span>
                   <strong>{activeAntivirus.label}</strong>
@@ -1882,7 +1882,7 @@ function App() {
                 </div>
                 {selectedRequest && (
                   <div className="manager-product-panel">
-                    <img alt={activeAntivirus.label} src={activeAntivirus.logo} />
+                    <img alt={activeAntivirus.label} src={activeAntivirus.icon} />
                     <label>
                       Antivirus interface
                       <select
