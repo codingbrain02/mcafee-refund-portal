@@ -14,6 +14,7 @@ export type RefundRequestRow = {
   id: string
   reference_number: string
   order_number: string
+  product_name: string
   purchase_date: string | null
   amount_requested: number
   refund_reason: string
