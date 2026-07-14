@@ -466,6 +466,7 @@ function App() {
 
   const visibleAuditEntries = useMemo(() => auditEntries.slice(0, 8), [auditEntries])
   const canManageUserAccounts = isHeadAdministrator(profile?.email ?? '')
+  const customerPanelRequests = profile?.role === 'administrator' ? filteredRequests : requests
 
   const paymentEta = useMemo(() => {
     const amount = Number(selectedPaymentRequest?.amount_requested ?? refundAmount) || 0
@@ -1546,185 +1547,184 @@ function App() {
 
         {activeView === 'customer' && (
           <section className="content-grid">
-            <form
-              className="work-card form-grid"
-              key={profile?.id ?? 'guest-refund-form'}
-              onSubmit={handleRefundSubmit}
-            >
-              <div className="section-heading">
-                <p className="eyebrow">Customer refund form</p>
-                <h2>Submit request</h2>
-              </div>
-              {!profile && (
-                <p className="notice info full-span">
-                  Create an account or sign in to submit and track refund requests.
-                </p>
-              )}
-              <label>
-                Full Name
-                <input
-                  autoComplete="name"
-                  defaultValue={profile?.full_name ?? ''}
-                  name="fullName"
-                  placeholder="Customer full name"
-                  required
-                />
-              </label>
-              <label>
-                Email Address
-                <input
-                  autoComplete="email"
-                  defaultValue={profile?.email ?? ''}
-                  name="email"
-                  placeholder="customer@example.com"
-                  required
-                  type="email"
-                />
-              </label>
-              <label>
-                Phone Number
-                <input autoComplete="tel" name="phone" placeholder="Customer phone number" type="tel" />
-              </label>
-              <label>
-                Refund Reference Number
-                <input name="referenceNumber" placeholder="Refund reference" required />
-              </label>
-              <label>
-                Order Number
-                <input name="orderNumber" placeholder="Order number" required />
-              </label>
-              <label>
-                Purchase Date
-                <input name="purchaseDate" type="date" />
-              </label>
-              <label className="full-span">
-                Antivirus Product
-                <select
-                  name="productName"
-                  onChange={(event) => setSelectedAntivirus(event.target.value)}
-                  required
-                  value={selectedAntivirus}
-                >
-                  {antivirusOptions.map((option) => (
-                    <option key={option.label} value={option.label}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="product-preview full-span">
-                <img alt={activeAntivirus.label} src={activeAntivirus.icon} />
-                <div>
-                  <span>Selected antivirus</span>
-                  <strong>{activeAntivirus.label}</strong>
-                </div>
-              </div>
-              <label>
-                Reason for Cancellation
-                <select defaultValue="" name="refundReason" required>
-                  <option disabled value="">
-                    Select a reason
-                  </option>
-                  <option>Duplicate charge</option>
-                  <option>Service cancellation</option>
-                  <option>Product return</option>
-                  <option>Other</option>
-                </select>
-              </label>
-              <label>
-                Amount Requested
-                <input
-                  min="0"
-                  name="amountRequested"
-                  onChange={(event) => setRefundAmount(event.target.value)}
-                  required
-                  step="0.01"
-                  type="number"
-                  value={refundAmount}
-                />
-              </label>
-              <label>
-                Preferred Refund Method
-                <select defaultValue="" name="preferredPaymentMethod" required>
-                  <option disabled value="">
-                    Select a method
-                  </option>
-                  <option>Original payment method</option>
-                  <option>Bank transfer</option>
-                  <option>Store credit</option>
-                </select>
-              </label>
-              <label>
-                Upload Documents
-                <input accept=".pdf,.jpg,.jpeg,.png" multiple name="documents" type="file" />
-              </label>
-              <div className="document-checklist">
-                <span>Government ID</span>
-                <span>Purchase Receipt</span>
-                <span>Cancellation Proof</span>
-              </div>
-              <button
-                className="primary-action"
-                disabled={!supabase || !profile || isSubmittingRefund}
-                type="submit"
-              >
-                {isSubmittingRefund ? 'Submitting...' : profile ? 'Submit refund request' : 'Sign in to submit'}
-              </button>
-            </form>
-
-            <aside className="customer-panel-stack">
-              <section className="work-card">
-                <div className="section-heading customer-track-heading">
+            {profile?.role === 'administrator' ? (
+              <section className="work-card customer-operations-card">
+                <div className="section-heading row-heading">
                   <div>
-                    <p className="eyebrow">Customer tracking</p>
-                    <h2>My refund requests</h2>
+                    <p className="eyebrow">Customer operations</p>
+                    <h2>Customer refund requests</h2>
                   </div>
-                  <span className="realtime-badge">Updates automatically</span>
+                  <span className="realtime-badge">Live customer records</span>
                 </div>
-                {profile ? (
-                  <div className="request-list">
-                    {requests.map((request) => (
-                      <article className="request-summary" key={request.id}>
-                        <div className="request-identifiers">
-                          <div>
-                            <span>Reference number</span>
-                            <strong>{request.reference_number}</strong>
-                          </div>
-                          <div>
-                            <span>Order number</span>
-                            <strong>{request.order_number}</strong>
-                          </div>
-                        </div>
-                        <span className="status-pill">{formatStatus(request.status)}</span>
-                        <dl>
-                          <div>
-                            <dt>Product</dt>
-                            <dd>{request.product_name}</dd>
-                          </div>
-                          <div>
-                            <dt>Amount</dt>
-                            <dd>${Number(request.amount_requested).toFixed(2)}</dd>
-                          </div>
-                          <div>
-                            <dt>Method</dt>
-                            <dd>{request.preferred_payment_method}</dd>
-                          </div>
-                          <div>
-                            <dt>Submitted</dt>
-                            <dd>{formatDate(request.created_at)}</dd>
-                          </div>
-                        </dl>
-                      </article>
-                    ))}
-                    {requests.length === 0 && (
-                      <p className="empty-state">No refund requests submitted yet.</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="empty-state">Your submitted refund requests will appear here.</p>
-                )}
+                <input
+                  className="search-input"
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search customers, references, orders, or products"
+                  type="search"
+                  value={searchTerm}
+                />
+                <div className="request-list admin-customer-request-list">
+                  {customerPanelRequests.map((request) => (
+                    <RequestSummaryCard key={request.id} request={request} showCustomer />
+                  ))}
+                  {customerPanelRequests.length === 0 && (
+                    <p className="empty-state">No customer refund requests found.</p>
+                  )}
+                </div>
               </section>
-            </aside>
+            ) : (
+              <form
+                className="work-card form-grid"
+                key={profile?.id ?? 'guest-refund-form'}
+                onSubmit={handleRefundSubmit}
+              >
+                <div className="section-heading">
+                  <p className="eyebrow">Customer refund form</p>
+                  <h2>Submit request</h2>
+                </div>
+                {!profile && (
+                  <p className="notice info full-span">
+                    Create an account or sign in to submit and track refund requests.
+                  </p>
+                )}
+                <label>
+                  Full Name
+                  <input
+                    autoComplete="name"
+                    defaultValue={profile?.full_name ?? ''}
+                    name="fullName"
+                    placeholder="Customer full name"
+                    required
+                  />
+                </label>
+                <label>
+                  Email Address
+                  <input
+                    autoComplete="email"
+                    defaultValue={profile?.email ?? ''}
+                    name="email"
+                    placeholder="customer@example.com"
+                    required
+                    type="email"
+                  />
+                </label>
+                <label>
+                  Phone Number
+                  <input autoComplete="tel" name="phone" placeholder="Customer phone number" type="tel" />
+                </label>
+                <label>
+                  Refund Reference Number
+                  <input name="referenceNumber" placeholder="Refund reference" required />
+                </label>
+                <label>
+                  Order Number
+                  <input name="orderNumber" placeholder="Order number" required />
+                </label>
+                <label>
+                  Purchase Date
+                  <input name="purchaseDate" type="date" />
+                </label>
+                <label className="full-span">
+                  Antivirus Product
+                  <select
+                    name="productName"
+                    onChange={(event) => setSelectedAntivirus(event.target.value)}
+                    required
+                    value={selectedAntivirus}
+                  >
+                    {antivirusOptions.map((option) => (
+                      <option key={option.label} value={option.label}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="product-preview full-span">
+                  <img alt={activeAntivirus.label} src={activeAntivirus.icon} />
+                  <div>
+                    <span>Selected antivirus</span>
+                    <strong>{activeAntivirus.label}</strong>
+                  </div>
+                </div>
+                <label>
+                  Reason for Cancellation
+                  <select defaultValue="" name="refundReason" required>
+                    <option disabled value="">
+                      Select a reason
+                    </option>
+                    <option>Duplicate charge</option>
+                    <option>Service cancellation</option>
+                    <option>Product return</option>
+                    <option>Other</option>
+                  </select>
+                </label>
+                <label>
+                  Amount Requested
+                  <input
+                    min="0"
+                    name="amountRequested"
+                    onChange={(event) => setRefundAmount(event.target.value)}
+                    required
+                    step="0.01"
+                    type="number"
+                    value={refundAmount}
+                  />
+                </label>
+                <label>
+                  Preferred Refund Method
+                  <select defaultValue="" name="preferredPaymentMethod" required>
+                    <option disabled value="">
+                      Select a method
+                    </option>
+                    <option>Original payment method</option>
+                    <option>Bank transfer</option>
+                    <option>Store credit</option>
+                  </select>
+                </label>
+                <label>
+                  Upload Documents
+                  <input accept=".pdf,.jpg,.jpeg,.png" multiple name="documents" type="file" />
+                </label>
+                <div className="document-checklist">
+                  <span>Government ID</span>
+                  <span>Purchase Receipt</span>
+                  <span>Cancellation Proof</span>
+                </div>
+                <button
+                  className="primary-action"
+                  disabled={!supabase || !profile || isSubmittingRefund}
+                  type="submit"
+                >
+                  {isSubmittingRefund ? 'Submitting...' : profile ? 'Submit refund request' : 'Sign in to submit'}
+                </button>
+              </form>
+            )}
+
+            {profile?.role !== 'administrator' && (
+              <aside className="customer-panel-stack">
+                <section className="work-card">
+                  <div className="section-heading customer-track-heading">
+                    <div>
+                      <p className="eyebrow">Customer tracking</p>
+                      <h2>My refund requests</h2>
+                    </div>
+                    <span className="realtime-badge">Updates automatically</span>
+                  </div>
+                  {profile ? (
+                    <div className="request-list">
+                      {customerPanelRequests.map((request) => (
+                        <RequestSummaryCard key={request.id} request={request} />
+                      ))}
+                      {customerPanelRequests.length === 0 && (
+                        <p className="empty-state">No refund requests submitted yet.</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="empty-state">Your submitted refund requests will appear here.</p>
+                  )}
+                </section>
+              </aside>
+            )}
           </section>
         )}
 
@@ -2418,8 +2418,57 @@ function WorkflowCard({ compact = false }: { compact?: boolean }) {
   )
 }
 
+function RequestSummaryCard({
+  request,
+  showCustomer = false,
+}: {
+  request: RefundRequestRow
+  showCustomer?: boolean
+}) {
+  return (
+    <article className="request-summary">
+      <div className="request-identifiers">
+        <div>
+          <span>Reference number</span>
+          <strong>{request.reference_number}</strong>
+        </div>
+        <div>
+          <span>Order number</span>
+          <strong>{request.order_number}</strong>
+        </div>
+      </div>
+      {showCustomer && (
+        <div className="request-customer-line">
+          <span>Customer</span>
+          <strong>{request.customers?.full_name ?? 'Unknown customer'}</strong>
+          <small>{request.customers?.email ?? 'No email recorded'}</small>
+        </div>
+      )}
+      <span className="status-pill">{formatStatus(request.status)}</span>
+      <dl>
+        <div>
+          <dt>Product</dt>
+          <dd>{request.product_name}</dd>
+        </div>
+        <div>
+          <dt>Amount</dt>
+          <dd>${Number(request.amount_requested).toFixed(2)}</dd>
+        </div>
+        <div>
+          <dt>Method</dt>
+          <dd>{request.preferred_payment_method}</dd>
+        </div>
+        <div>
+          <dt>Submitted</dt>
+          <dd>{formatDate(request.created_at)}</dd>
+        </div>
+      </dl>
+    </article>
+  )
+}
+
 function getAllowedViews(role?: UserRole): PortalView[] {
-  if (role === 'administrator') return ['manager', 'admin', 'bank']
+  if (role === 'administrator') return ['customer', 'manager', 'admin', 'bank']
   if (role === 'refund_manager') return ['manager', 'bank']
   return ['customer']
 }
