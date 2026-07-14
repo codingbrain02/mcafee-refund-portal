@@ -345,6 +345,17 @@ function App() {
     [activeAntivirus],
   )
 
+  useEffect(() => {
+    document.title = `${activeAntivirus.label} Refund Processing Portal`
+
+    const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+
+    if (favicon) {
+      favicon.href = activeAntivirus.icon
+      favicon.type = activeAntivirus.icon.endsWith('.svg') ? 'image/svg+xml' : 'image/png'
+    }
+  }, [activeAntivirus])
+
   const paymentReadyRequests = useMemo(
     () =>
       requests.filter((request) =>
