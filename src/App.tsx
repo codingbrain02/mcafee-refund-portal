@@ -1363,6 +1363,12 @@ function App() {
       formatStatus(request.status),
       formatDate(request.created_at),
     ])
+
+    if (rows.length === 0) {
+      setNotice({ kind: 'info', message: 'There are no refund records available to export.' })
+      return
+    }
+
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n')
@@ -2060,7 +2066,16 @@ function App() {
                   >
                     Reject
                   </button>
-                  <button onClick={handleExportReports} type="button">
+                  <button
+                    disabled={filteredRequests.length === 0}
+                    onClick={handleExportReports}
+                    title={
+                      filteredRequests.length === 0
+                        ? 'No refund records available to export.'
+                        : 'Export visible refund records.'
+                    }
+                    type="button"
+                  >
                     Export Reports
                   </button>
                 </div>
