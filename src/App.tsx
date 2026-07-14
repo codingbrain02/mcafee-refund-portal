@@ -153,8 +153,11 @@ function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(false)
   const [isResetLoading, setIsResetLoading] = useState(false)
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
+  const [isSubmittingStaffRefund, setIsSubmittingStaffRefund] = useState(false)
   const [refundAmount, setRefundAmount] = useState('')
+  const [staffRefundAmount, setStaffRefundAmount] = useState('')
   const [selectedAntivirus, setSelectedAntivirus] = useState('McAfee')
+  const [staffIntakeProduct, setStaffIntakeProduct] = useState('McAfee')
   const [requests, setRequests] = useState<RefundRequestRow[]>([])
   const [users, setUsers] = useState<UserAccountRow[]>([])
   const [statusHistory, setStatusHistory] = useState<StatusHistoryRow[]>([])
@@ -334,6 +337,10 @@ function App() {
 
     return getAntivirusOption(productName)
   }, [activeView, selectedAntivirus, selectedRequest?.product_name])
+  const staffIntakeAntivirus = useMemo(
+    () => getAntivirusOption(staffIntakeProduct),
+    [staffIntakeProduct],
+  )
 
   const portalTheme = useMemo(
     () =>
@@ -962,6 +969,106 @@ function App() {
     await logAudit('refund_submitted', 'refund_request', refund.id, { referenceNumber })
     await loadRefundRequests()
     await loadStatusHistory()
+  }
+
+  async function handleStaffRefundSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase || !profile) return
+
+    if (profile.role !== 'administrator' && profile.role !== 'refund_manager') {
+      showCustomerDialog('error', 'Only refund managers and administrators can create requests for customers.')
+      return
+    }
+
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const files = form.getAll('documents').filter((file): file is File => file instanceof File)
+    const fullName = String(form.get('fullName') ?? '').trim()
+    const email = String(form.get('email') ?? '').trim()
+    const phone = String(form.get('phone') ?? '').trim()
+    const referenceNumber = String(form.get('referenceNumber') ?? '').trim()
+    const orderNumber = String(form.get('orderNumber') ?? '').trim()
+    const purchaseDate = String(form.get('purchaseDate') ?? '')
+    const refundReason = String(form.get('refundReason') ?? '')
+    const preferredPaymentMethod = String(form.get('preferredPaymentMethod') ?? '')
+    const productName = String(form.get('productName') ?? staffIntakeProduct)
+    const internalNoteText = String(form.get('internalNote') ?? '').trim()
+    const amount = Number(form.get('amountRequested'))
+
+    if (!fullName || !email || !referenceNumber || !orderNumber || !amount) {
+      showCustomerDialog('error', 'Please complete the required customer and refund details.')
+      return
+    }
+
+    setIsSubmittingStaffRefund(true)
+
+    const { data: refundId, error: refundError } = await supabase.rpc('create_staff_refund_request', {
+      p_amount_requested: amount,
+      p_customer_email: email,
+      p_customer_full_name: fullName,
+      p_customer_phone: phone,
+      p_internal_note: internalNoteText || null,
+      p_order_number: orderNumber,
+      p_preferred_payment_method: preferredPaymentMethod,
+      p_product_name: productName,
+      p_purchase_date: purchaseDate || null,
+      p_reference_number: referenceNumber,
+      p_refund_reason: refundReason,
+    })
+
+    if (refundError || !refundId) {
+      setIsSubmittingStaffRefund(false)
+      showCustomerDialog('error', getCustomerFriendlyError(refundError?.message ?? 'Refund request could not be created.'))
+      return
+    }
+
+    for (const file of files) {
+      if (file.size === 0) continue
+
+      if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+        showCustomerDialog('error', `${file.name} must be a PDF, JPG, or PNG file.`)
+        continue
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        showCustomerDialog('error', `${file.name} is larger than the 10 MB upload limit.`)
+        continue
+      }
+
+      const storagePath = `${refundId}/${crypto.randomUUID()}-${file.name}`
+      const { error: uploadError } = await supabase.storage
+        .from('refund-documents')
+        .upload(storagePath, file)
+
+      if (uploadError) {
+        showCustomerDialog('error', getCustomerFriendlyError(uploadError.message))
+        continue
+      }
+
+      const { error: documentError } = await supabase.from('refund_documents').insert({
+        refund_request_id: refundId,
+        document_type: file.name,
+        storage_path: storagePath,
+        mime_type: file.type,
+        file_size_bytes: file.size,
+        uploaded_by: profile.id,
+      })
+
+      if (documentError) {
+        showCustomerDialog('error', getCustomerFriendlyError(documentError.message))
+      }
+    }
+
+    setIsSubmittingStaffRefund(false)
+    formElement.reset()
+    setStaffRefundAmount('')
+    setStaffIntakeProduct('McAfee')
+    setSelectedRequestId(refundId)
+    showCustomerDialog(
+      'success',
+      `Refund request ${referenceNumber} was created for ${fullName}. It is now available in the manager queue.`,
+    )
+    await refreshOperations()
   }
 
   function showCustomerDialog(kind: NoticeKind, message: string) {
@@ -1738,6 +1845,123 @@ function App() {
                 </article>
               ))}
             </div>
+
+            <form className="work-card form-grid staff-intake-card" onSubmit={handleStaffRefundSubmit}>
+              <div className="section-heading">
+                <p className="eyebrow">Staff refund intake</p>
+                <h2>Create request for customer</h2>
+              </div>
+              <label>
+                Customer Full Name
+                <input autoComplete="name" name="fullName" placeholder="Customer full name" required />
+              </label>
+              <label>
+                Customer Email
+                <input
+                  autoComplete="email"
+                  name="email"
+                  placeholder="customer@example.com"
+                  required
+                  type="email"
+                />
+              </label>
+              <label>
+                Customer Phone Number
+                <input autoComplete="tel" name="phone" placeholder="Customer phone number" type="tel" />
+              </label>
+              <label>
+                Refund Reference Number
+                <input name="referenceNumber" placeholder="Refund reference" required />
+              </label>
+              <label>
+                Order Number
+                <input name="orderNumber" placeholder="Order number" required />
+              </label>
+              <label>
+                Purchase Date
+                <input name="purchaseDate" type="date" />
+              </label>
+              <label className="full-span">
+                Antivirus Product
+                <select
+                  name="productName"
+                  onChange={(event) => setStaffIntakeProduct(event.target.value)}
+                  required
+                  value={staffIntakeProduct}
+                >
+                  {antivirusOptions.map((option) => (
+                    <option key={option.label} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="product-preview full-span">
+                <img alt={staffIntakeAntivirus.label} src={staffIntakeAntivirus.icon} />
+                <div>
+                  <span>Selected antivirus</span>
+                  <strong>{staffIntakeAntivirus.label}</strong>
+                </div>
+              </div>
+              <label>
+                Reason for Cancellation
+                <select defaultValue="" name="refundReason" required>
+                  <option disabled value="">
+                    Select a reason
+                  </option>
+                  <option>Duplicate charge</option>
+                  <option>Service cancellation</option>
+                  <option>Product return</option>
+                  <option>Other</option>
+                </select>
+              </label>
+              <label>
+                Amount Requested
+                <input
+                  min="0"
+                  name="amountRequested"
+                  onChange={(event) => setStaffRefundAmount(event.target.value)}
+                  required
+                  step="0.01"
+                  type="number"
+                  value={staffRefundAmount}
+                />
+              </label>
+              <label>
+                Preferred Refund Method
+                <select defaultValue="" name="preferredPaymentMethod" required>
+                  <option disabled value="">
+                    Select a method
+                  </option>
+                  <option>Original payment method</option>
+                  <option>Bank transfer</option>
+                  <option>Store credit</option>
+                </select>
+              </label>
+              <label>
+                Upload Documents
+                <input accept=".pdf,.jpg,.jpeg,.png" multiple name="documents" type="file" />
+              </label>
+              <label className="full-span">
+                Intake Notes
+                <textarea
+                  name="internalNote"
+                  placeholder="Record why staff created this request and any customer-provided details."
+                />
+              </label>
+              <div className="document-checklist">
+                <span>Government ID</span>
+                <span>Purchase Receipt</span>
+                <span>Cancellation Proof</span>
+              </div>
+              <button
+                className="primary-action"
+                disabled={!supabase || !profile || isSubmittingStaffRefund}
+                type="submit"
+              >
+                {isSubmittingStaffRefund ? 'Creating request...' : 'Create customer refund request'}
+              </button>
+            </form>
 
             <div className="content-grid">
               <section className="work-card">
@@ -2570,6 +2794,11 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
     detail = `${actor} added an internal note to refund ${reference || event.entity_id || 'request'}.`
   } else if (event.action === 'refund_submitted') {
     detail = `${actor} submitted refund ${reference || event.entity_id || 'request'}.`
+  } else if (event.action === 'staff_refund_submitted') {
+    detail = `${actor} created refund ${reference || event.entity_id || 'request'} for ${readMetadataString(
+      metadata,
+      'customerName',
+    ) || readMetadataString(metadata, 'customerEmail') || 'a customer'}.`
   }
 
   return {
