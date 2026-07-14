@@ -1763,7 +1763,7 @@ function App() {
                         <th>Order</th>
                         <th>Amount</th>
                         <th>Status</th>
-                        <th>Owner</th>
+                        <th>Handler</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1781,7 +1781,7 @@ function App() {
                           <td data-label="Status">
                             <span className="status-pill">{formatStatus(request.status)}</span>
                           </td>
-                          <td data-label="Owner">
+                          <td data-label="Handler">
                             {request.assigned_to
                               ? (usersById.get(request.assigned_to)?.full_name ?? 'Assigned staff')
                               : 'Unassigned'}
@@ -2095,7 +2095,7 @@ function App() {
                     <li>Change the role from Customer to Refund manager.</li>
                   </ol>
                   <p className="helper-copy">
-                    The head administrator account is locked as the absolute portal owner.
+                    The head administrator account is locked as the absolute portal administrator.
                   </p>
                 </section>
 
