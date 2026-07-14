@@ -8,7 +8,8 @@ create type public.refund_status as enum (
   'approved',
   'rejected',
   'payment_processing',
-  'completed'
+  'completed',
+  'credited'
 );
 
 create table public.roles (

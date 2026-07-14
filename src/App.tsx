@@ -24,6 +24,7 @@ type RefundStatus =
   | 'rejected'
   | 'payment_processing'
   | 'completed'
+  | 'credited'
 
 type Notice = {
   kind: NoticeKind
@@ -44,12 +45,11 @@ type AntivirusOption = {
 }
 
 const workflow = [
-  'Customer Submitted',
-  'Document Verification',
-  'Manager Review',
+  'Pending Review',
+  'Documents Verified',
   'Approval',
-  'Bank Payment Processing',
-  'Completed',
+  'Processing',
+  'Credited',
 ]
 
 const bankStatuses = ['queued', 'submitted', 'settled', 'failed']
@@ -117,6 +117,7 @@ const requestStatusRank: Partial<Record<RefundStatus, number>> = {
   documents_verified: 2,
   approved: 3,
   payment_processing: 4,
+  credited: 5,
   completed: 5,
 }
 
@@ -366,7 +367,7 @@ function App() {
   const paymentReadyRequests = useMemo(
     () =>
       requests.filter((request) =>
-        ['approved', 'payment_processing', 'completed'].includes(request.status),
+        ['approved', 'payment_processing', 'credited', 'completed'].includes(request.status),
       ),
     [requests],
   )
@@ -1095,6 +1096,11 @@ function App() {
       }
     }
 
+    if (nextStatus === 'rejected' && !internalNote.trim()) {
+      setNotice({ kind: 'error', message: 'Enter a rejection reason before rejecting this request.' })
+      return
+    }
+
     const note = internalNote.trim() || fallbackNote
     setActionLoading(nextStatus)
 
@@ -1341,7 +1347,7 @@ function App() {
     if (paymentStatus === 'settled' && selectedPaymentRequest) {
       await changeRequestStatus(
         selectedPaymentRequest,
-        'completed',
+        'credited',
         `Payment ${selectedPaymentTransaction.transaction_reference} settled.`,
       )
     }
@@ -1797,7 +1803,11 @@ function App() {
                   {profile ? (
                     <div className="request-list">
                       {customerPanelRequests.map((request) => (
-                        <RequestSummaryCard key={request.id} request={request} />
+                        <RequestSummaryCard
+                          key={request.id}
+                          request={request}
+                          timeline={statusHistory.filter((item) => item.refund_request_id === request.id)}
+                        />
                       ))}
                       {customerPanelRequests.length === 0 && (
                         <p className="empty-state">No refund requests submitted yet.</p>
@@ -2046,9 +2056,10 @@ function App() {
                   <button
                     disabled={
                       !selectedRequest ||
-                      ['approved', 'rejected', 'payment_processing', 'completed'].includes(
+                      ['approved', 'rejected', 'payment_processing', 'credited', 'completed'].includes(
                         selectedRequest.status,
                       ) ||
+                      !internalNote.trim() ||
                       actionLoading === 'rejected'
                     }
                     onClick={() =>
@@ -2056,10 +2067,12 @@ function App() {
                     }
                     title={
                       selectedRequest &&
-                      ['approved', 'rejected', 'payment_processing', 'completed'].includes(
+                      ['approved', 'rejected', 'payment_processing', 'credited', 'completed'].includes(
                         selectedRequest.status,
                       )
                         ? `Request is already ${formatStatus(selectedRequest.status)}.`
+                        : selectedRequest && !internalNote.trim()
+                          ? 'Enter a rejection reason in the notes field first.'
                         : ''
                     }
                     type="button"
@@ -2631,10 +2644,16 @@ function WorkflowCard({ compact = false }: { compact?: boolean }) {
 function RequestSummaryCard({
   request,
   showCustomer = false,
+  timeline = [],
 }: {
   request: RefundRequestRow
   showCustomer?: boolean
+  timeline?: StatusHistoryRow[]
 }) {
+  const orderedTimeline = [...timeline].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  )
+
   return (
     <article className="request-summary">
       <div className="request-identifiers">
@@ -2673,6 +2692,18 @@ function RequestSummaryCard({
           <dd>{formatDate(request.created_at)}</dd>
         </div>
       </dl>
+      {orderedTimeline.length > 0 && (
+        <div className="customer-status-timeline">
+          <span>Status timeline</span>
+          {orderedTimeline.map((item) => (
+            <div key={item.id}>
+              <strong>{formatStatus(item.to_status)}</strong>
+              <small>{formatDate(item.created_at)}</small>
+              {item.internal_notes && <p>{item.internal_notes}</p>}
+            </div>
+          ))}
+        </div>
+      )}
     </article>
   )
 }
@@ -2693,7 +2724,7 @@ function getManagerWorkflowActionState(
   }
 
   const currentStatus = request.status as RefundStatus
-  const terminalStatuses: RefundStatus[] = ['rejected', 'payment_processing', 'completed']
+  const terminalStatuses: RefundStatus[] = ['rejected', 'payment_processing', 'credited', 'completed']
 
   if (terminalStatuses.includes(currentStatus)) {
     return {
