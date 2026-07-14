@@ -689,6 +689,10 @@ td {
   margin-bottom: 14px;
 }
 
+.notification-heading {
+  margin-top: 18px;
+}
+
 .manager-product-panel select:disabled {
   border-color: var(--accent);
   background: #f8fafc;

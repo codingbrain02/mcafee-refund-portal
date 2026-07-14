@@ -3,6 +3,7 @@ import {
   type AuditLogRow,
   hasSupabaseConfig,
   type InternalNoteRow,
+  type NotificationRow,
   type PaymentTransactionRow,
   supabase,
   type RefundRequestRow,
@@ -165,10 +166,12 @@ function App() {
   const [internalNotes, setInternalNotes] = useState<InternalNoteRow[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([])
   const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransactionRow[]>([])
+  const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRequestId, setSelectedRequestId] = useState('')
   const [internalNote, setInternalNote] = useState('')
   const [beneficiaryName, setBeneficiaryName] = useState('')
+  const [beneficiaryLast4, setBeneficiaryLast4] = useState('')
   const [transactionReference, setTransactionReference] = useState('')
   const [paymentStatus, setPaymentStatus] = useState('submitted')
   const [actionLoading, setActionLoading] = useState('')
@@ -246,6 +249,7 @@ function App() {
     if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
       void loadInternalNotes()
       void loadPaymentTransactions()
+      void loadNotifications()
       void loadUsers()
     }
 
@@ -276,6 +280,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_notes' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payment_transactions' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_logs' }, queueRealtimeRefresh)
       .subscribe()
@@ -491,6 +496,7 @@ function App() {
       setInternalNotes([])
       setAuditLogs([])
       setPaymentTransactions([])
+      setNotifications([])
       setSelectedRequestId('')
       return
     }
@@ -541,7 +547,7 @@ function App() {
     await Promise.all([loadRefundRequests(), loadStatusHistory()])
 
     if (profileToLoad.role === 'administrator' || profileToLoad.role === 'refund_manager') {
-      await Promise.all([loadInternalNotes(), loadPaymentTransactions(), loadUsers()])
+      await Promise.all([loadInternalNotes(), loadPaymentTransactions(), loadNotifications(), loadUsers()])
     }
 
     if (profileToLoad.role === 'administrator') {
@@ -651,7 +657,7 @@ function App() {
     const { data, error } = await supabase
       .from('payment_transactions')
       .select(
-        'id, refund_request_id, provider, transaction_reference, beneficiary_hash, amount, status, error_message, created_at, updated_at',
+        'id, refund_request_id, provider, transaction_reference, beneficiary_hash, beneficiary_last4, amount, status, error_message, created_at, updated_at',
       )
       .order('created_at', { ascending: false })
       .limit(100)
@@ -662,6 +668,25 @@ function App() {
     }
 
     setPaymentTransactions((data ?? []) as PaymentTransactionRow[])
+  }
+
+  async function loadNotifications() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('notifications')
+      .select(
+        'id, refund_request_id, channel, recipient, template, status, subject, provider, provider_message_id, attempt_count, max_attempts, next_attempt_at, last_attempt_at, last_error, credited_at, account_last4, created_at, sent_at',
+      )
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setNotifications((data ?? []) as NotificationRow[])
   }
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -814,6 +839,7 @@ function App() {
     setInternalNotes([])
     setAuditLogs([])
     setPaymentTransactions([])
+    setNotifications([])
     setSelectedRequestId('')
     setView('customer')
     setAuthDialog(null)
@@ -1289,6 +1315,11 @@ function App() {
       return
     }
 
+    if (!/^\d{4}$/.test(beneficiaryLast4)) {
+      setNotice({ kind: 'error', message: 'Enter only the last 4 digits of the destination account.' })
+      return
+    }
+
     setActionLoading('payment')
     const beneficiaryHash = await createBeneficiaryHash(beneficiary)
     const { error } = await supabase.from('payment_transactions').insert({
@@ -1296,6 +1327,7 @@ function App() {
       provider: 'authorized_bank_api',
       transaction_reference: reference,
       beneficiary_hash: beneficiaryHash,
+      beneficiary_last4: beneficiaryLast4,
       amount: selectedPaymentRequest.amount_requested,
       status: 'submitted',
     })
@@ -1312,6 +1344,7 @@ function App() {
       `Payment request ${reference} submitted to authorized banking API.`,
     )
     setBeneficiaryName('')
+    setBeneficiaryLast4('')
     setTransactionReference('')
     setPaymentStatus('submitted')
     await loadPaymentTransactions()
@@ -1398,6 +1431,7 @@ function App() {
     if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
       await loadInternalNotes()
       await loadPaymentTransactions()
+      await loadNotifications()
       await loadUsers()
     }
 
@@ -1413,6 +1447,7 @@ function App() {
     if (role === 'administrator' || role === 'refund_manager') {
       await loadInternalNotes()
       await loadPaymentTransactions()
+      await loadNotifications()
       await loadUsers()
     }
 
@@ -2394,6 +2429,18 @@ function App() {
                 />
               </label>
               <label>
+                Destination Account Last 4
+                <input
+                  inputMode="numeric"
+                  maxLength={4}
+                  onChange={(event) =>
+                    setBeneficiaryLast4(event.target.value.replace(/\D/g, '').slice(0, 4))
+                  }
+                  placeholder="Last 4 digits only"
+                  value={beneficiaryLast4}
+                />
+              </label>
+              <label>
                 Payment Amount
                 <input
                   readOnly
@@ -2476,11 +2523,35 @@ function App() {
                   <article key={transaction.id}>
                     <strong>{transaction.transaction_reference}</strong>
                     <span>{formatStatus(transaction.status)}</span>
-                    <p>${Number(transaction.amount).toFixed(2)} via {transaction.provider}</p>
+                    <p>
+                      ${Number(transaction.amount).toFixed(2)} via {transaction.provider}
+                      {transaction.beneficiary_last4 ? ` ending ${transaction.beneficiary_last4}` : ''}
+                    </p>
                   </article>
                 ))}
                 {paymentTransactions.length === 0 && (
                   <p className="empty-state">No payment transactions yet.</p>
+                )}
+              </div>
+              <div className="section-heading notification-heading">
+                <p className="eyebrow">Email notifications</p>
+                <h2>Resend delivery log</h2>
+              </div>
+              <div className="timeline-list">
+                {notifications.map((notification) => (
+                  <article key={notification.id}>
+                    <strong>{notification.subject ?? titleCase(notification.template.replaceAll('_', ' '))}</strong>
+                    <span>{formatStatus(notification.status)}</span>
+                    <p>
+                      {notification.recipient} - attempt {notification.attempt_count}/
+                      {notification.max_attempts}
+                    </p>
+                    {notification.sent_at && <p>Sent {formatDateTime(notification.sent_at)}</p>}
+                    {notification.last_error && <p>{notification.last_error}</p>}
+                  </article>
+                ))}
+                {notifications.length === 0 && (
+                  <p className="empty-state">No email notifications queued yet.</p>
                 )}
               </div>
             </aside>
@@ -2816,6 +2887,10 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
       metadata,
       'customerName',
     ) || readMetadataString(metadata, 'customerEmail') || 'a customer'}.`
+  } else if (event.action === 'notification_queued') {
+    detail = `${actor} queued ${readMetadataString(metadata, 'provider') || 'email'} notification for refund ${
+      reference || 'request'
+    }.`
   }
 
   return {

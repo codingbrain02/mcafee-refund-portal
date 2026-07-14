@@ -85,11 +85,33 @@ export type PaymentTransactionRow = {
   provider: string
   transaction_reference: string
   beneficiary_hash: string
+  beneficiary_last4: string | null
   amount: number
   status: string
   error_message: string | null
   created_at: string
   updated_at: string
+}
+
+export type NotificationRow = {
+  id: string
+  refund_request_id: string | null
+  channel: string
+  recipient: string
+  template: string
+  status: string
+  subject: string | null
+  provider: string
+  provider_message_id: string | null
+  attempt_count: number
+  max_attempts: number
+  next_attempt_at: string
+  last_attempt_at: string | null
+  last_error: string | null
+  credited_at: string | null
+  account_last4: string | null
+  created_at: string
+  sent_at: string | null
 }
 
 const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL
