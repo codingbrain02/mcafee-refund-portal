@@ -689,6 +689,14 @@ td {
   margin-bottom: 14px;
 }
 
+.manager-product-panel select:disabled {
+  border-color: var(--accent);
+  background: #f8fafc;
+  color: var(--text);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .button-row button,
 .row-heading button,
 .admin-grid button,

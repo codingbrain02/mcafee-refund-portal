@@ -1169,35 +1169,6 @@ function App() {
     setNotice({ kind: 'success', message: 'Internal note saved.' })
   }
 
-  async function handleUpdateRequestProduct(productName: string) {
-    if (!supabase || !profile || !selectedRequest) return
-
-    setSelectedAntivirus(productName)
-
-    if (productName === selectedRequest.product_name) return
-
-    setActionLoading('product')
-    const { error } = await supabase
-      .from('refund_requests')
-      .update({ product_name: productName, updated_at: new Date().toISOString() })
-      .eq('id', selectedRequest.id)
-
-    if (error) {
-      setActionLoading('')
-      setNotice({ kind: 'error', message: error.message })
-      return
-    }
-
-    await logAudit('refund_product_updated', 'refund_request', selectedRequest.id, {
-      from: selectedRequest.product_name,
-      referenceNumber: selectedRequest.reference_number,
-      to: productName,
-    })
-    await refreshOperations()
-    setActionLoading('')
-    setNotice({ kind: 'success', message: `Request product changed to ${productName}.` })
-  }
-
   async function handleUpdateUserRole(user: UserAccountRow, role: UserRole) {
     if (!supabase || !profile) return
 
@@ -2110,8 +2081,8 @@ function App() {
                     <label>
                       Antivirus interface
                       <select
-                        disabled={actionLoading === 'product'}
-                        onChange={(event) => void handleUpdateRequestProduct(event.target.value)}
+                        aria-readonly="true"
+                        disabled
                         value={selectedRequest.product_name}
                       >
                         {antivirusOptions.map((option) => (
