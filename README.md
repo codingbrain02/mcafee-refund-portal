@@ -1,75 +1,50 @@
-# React + TypeScript + Vite
+# Refund Management Portal
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Secure web portal for customer refund intake, staff review, document verification, payment tracking, audit history, and email notifications.
 
-Currently, two official plugins are available:
+## Current architecture
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19, TypeScript, and Vite frontend
+- Supabase Auth, PostgreSQL, Realtime, Row Level Security, and private Storage
+- Vercel serverless functions for Resend delivery and signed document links
+- Vercel production hosting with GitHub-based deployment
+- Database migrations under `supabase/migrations`
 
-## React Compiler
+The banking screen currently records internal payment workflow data. It does not call Bank of America or any other banking service until authorized API credentials and documentation are supplied.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Roles
 
-## Expanding the ESLint configuration
+- Customer: submits and tracks owned refunds, uploads documents, and opens authorized document links.
+- Refund manager: reviews requests, verifies documents, approves or rejects refunds, requests additional documents, and manages payment workflow.
+- Administrator: performs manager operations plus user, audit, reporting, and configuration oversight.
+- Portal administrator: the protected head administrator account configured by the database policies.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Local setup
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+1. Install Node.js 24 and run `npm install`.
+2. Copy `.env.example` to `.env` and enter the Supabase values.
+3. Link the Supabase project with `npx supabase link`.
+4. Apply migrations with `npm run db:push`.
+5. Run `npm run dev` when local development is needed.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Do not commit `.env`, service-role keys, database passwords, Resend keys, or banking credentials.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Quality checks
 
+```bash
+npm run check
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+This runs linting, automated tests, TypeScript compilation, and the production Vite build. GitHub Actions runs the same checks for pushes and pull requests.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Documentation
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- [API documentation](docs/API.md)
+- [Deployment guide](docs/DEPLOYMENT.md)
+- [Administrator manual](docs/ADMIN_MANUAL.md)
+- [Technical architecture](docs/TECHNICAL.md)
+- [Production checklist](docs/PRODUCTION_CHECKLIST.md)
 
-```
+## Production
+
+The production application is hosted at `https://mcafee-refund-portal.vercel.app`. The health endpoint is available at `/api/health`.
