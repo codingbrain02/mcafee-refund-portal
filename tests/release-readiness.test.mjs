@@ -8,7 +8,6 @@ const requiredDocs = [
   '../docs/ADMIN_MANUAL.md',
   '../docs/TECHNICAL.md',
   '../docs/PRODUCTION_CHECKLIST.md',
-  '../docs/MONITORING.md',
 ]
 
 test('release documentation is present and project-specific', () => {

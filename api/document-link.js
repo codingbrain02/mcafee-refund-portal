@@ -6,16 +6,10 @@ import {
   getJsonBody,
   getValidUuid,
 } from '../server/security.js'
-import {
-  captureServerException,
-  captureServerMessage,
-  getSafeServerErrorMessage,
-  withServerMonitoring,
-} from '../server/monitoring.js'
 
 const linkLifetimeSeconds = 300
 
-async function handler(request, response) {
+export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store')
 
   if (request.method !== 'POST') {
@@ -28,10 +22,6 @@ async function handler(request, response) {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
   if (!supabaseUrl || !serviceRoleKey) {
-    await captureServerMessage('Document link configuration is incomplete.', {
-      operation: 'configuration_check',
-      route: 'document-link',
-    })
     console.error('Document link configuration is incomplete.')
     response.status(500).json({ error: 'Document access is temporarily unavailable' })
     return
@@ -93,14 +83,7 @@ async function handler(request, response) {
       .createSignedUrl(document.storage_path, linkLifetimeSeconds, { download: document.document_type })
 
     if (signedLinkError || !signedLink?.signedUrl) {
-      await captureServerException(signedLinkError ?? new Error('Signed link was not returned.'), {
-        operation: 'create_signed_document_link',
-        route: 'document-link',
-      })
-      console.error('Failed to create document link.', {
-        documentId,
-        error: getSafeServerErrorMessage(signedLinkError),
-      })
+      console.error('Failed to create document link.', { documentId, error: signedLinkError?.message })
       response.status(500).json({ error: 'A secure document link could not be created' })
       return
     }
@@ -126,12 +109,9 @@ async function handler(request, response) {
       url: signedLink.signedUrl,
     })
   } catch (error) {
-    await captureServerException(error, { operation: 'document_link_request', route: 'document-link' })
     console.error('Document link request failed.', {
-      error: getSafeServerErrorMessage(error),
+      error: error instanceof Error ? error.message : 'Unknown error',
     })
     response.status(503).json({ error: 'Document access is temporarily unavailable' })
   }
 }
-
-export default withServerMonitoring(handler, 'document-link')

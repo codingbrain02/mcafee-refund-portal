@@ -8,7 +8,6 @@ Secure web portal for customer refund intake, staff review, document verificatio
 - Supabase Auth, PostgreSQL, Realtime, Row Level Security, and private Storage
 - Vercel serverless functions for Resend delivery and signed document links
 - Filtered CSV and on-demand PDF operational reporting
-- Optional privacy-scrubbed Sentry monitoring for frontend and serverless failures
 - Vercel production hosting with GitHub-based deployment
 - Database migrations under `supabase/migrations`
 
@@ -49,7 +48,6 @@ This runs linting, automated tests, TypeScript compilation, and the production V
 - [Administrator manual](docs/ADMIN_MANUAL.md)
 - [Technical architecture](docs/TECHNICAL.md)
 - [Production checklist](docs/PRODUCTION_CHECKLIST.md)
-- [Monitoring guide](docs/MONITORING.md)
 
 ## Production
 

@@ -1,5 +1,4 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { capturePortalException, getSafePortalErrorMessage } from './lib/monitoring.ts'
 
 type ErrorBoundaryProps = {
   children: ReactNode
@@ -17,13 +16,9 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    capturePortalException(error, {
-      componentStack: info.componentStack,
-      operation: 'react_error_boundary',
-    })
     console.error('Portal interface error.', {
       componentStack: info.componentStack,
-      message: getSafePortalErrorMessage(error),
+      message: error.message,
     })
   }
 

@@ -31,15 +31,8 @@ Configure these for Production and Preview:
 | `RESEND_FROM_EMAIL` | Server | Verified sender or Resend test sender |
 | `NOTIFICATION_CRON_SECRET` | Optional server secret | Future server-to-server processing |
 | `CRON_SECRET` | Optional server secret | Compatibility fallback |
-| `VITE_SENTRY_DSN` | Optional public build | Browser error monitoring |
-| `SENTRY_DSN` | Optional server value | Serverless error monitoring |
-| `SENTRY_AUTH_TOKEN` | Optional build secret | Sentry source-map upload |
-| `SENTRY_ORG` | Optional build value | Sentry organization slug |
-| `SENTRY_PROJECT` | Optional build value | Sentry project slug |
 
 Do not add `SUPABASE_DB_PASSWORD` to Vercel. Leave banking variables unset until authorized credentials are received.
-
-See `MONITORING.md` for privacy controls, trace sampling, release tags, and preview validation. Monitoring remains disabled when its DSNs are blank.
 
 ## Resend
 

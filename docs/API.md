@@ -25,13 +25,10 @@ Successful response:
   "checkedAt": "2026-07-15T02:00:00.000Z",
   "components": {
     "database": "available",
-    "email": "configured",
-    "monitoring": "unconfigured"
+    "email": "configured"
   }
 }
 ```
-
-The monitoring component reports only whether the optional server DSN is configured. An unconfigured monitoring component does not degrade the portal.
 
 Status codes: `200` healthy or non-critical degradation, `405` unsupported method, `503` unavailable database/configuration.
 
