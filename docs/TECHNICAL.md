@@ -31,6 +31,10 @@
 
 Supabase Realtime refreshes refunds, histories, users, notes, documents, payments, notifications, and audit views. Realtime improves interface freshness but does not replace RLS.
 
+## Reporting
+
+Manager reporting filters the role-authorized in-memory refund dataset by search, status, and antivirus product. CSV cells are escaped and formula-prefixed values are neutralized before download. PDF generation uses dynamically imported `jsPDF` and `jspdf-autotable`, keeping the reporting engine out of the initial portal bundle. Every successful export records its format, filters, record count, total amount, actor, and timestamp in the audit log.
+
 ## Failure behavior
 
 Email failures remain queued with retry metadata. Staff session restoration retries due messages. API errors are sanitized for users and written to Vercel logs. A React error boundary provides a controlled reload path after unexpected rendering failures.

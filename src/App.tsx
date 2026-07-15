@@ -36,6 +36,7 @@ type Notice = {
 type AuthDialog = 'verify-email' | 'confirm-sign-out' | null
 
 type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
+type ReportFormat = 'csv' | 'pdf'
 
 type AntivirusOption = {
   accent: string
@@ -55,6 +56,16 @@ const workflow = [
 ]
 
 const bankStatuses = ['queued', 'submitted', 'settled', 'failed']
+const reportStatuses: RefundStatus[] = [
+  'submitted',
+  'under_review',
+  'documents_verified',
+  'approved',
+  'rejected',
+  'payment_processing',
+  'credited',
+  'completed',
+]
 const headAdministratorEmail = 'jccodingbrain@gmail.com'
 const antivirusOptions: AntivirusOption[] = [
   {
@@ -170,6 +181,9 @@ function App() {
   const [refundDocuments, setRefundDocuments] = useState<RefundDocumentRow[]>([])
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [reportStatusFilter, setReportStatusFilter] = useState('all')
+  const [reportProductFilter, setReportProductFilter] = useState('all')
+  const [reportFormat, setReportFormat] = useState<ReportFormat>('csv')
   const [selectedRequestId, setSelectedRequestId] = useState('')
   const [internalNote, setInternalNote] = useState('')
   const [beneficiaryName, setBeneficiaryName] = useState('')
@@ -317,23 +331,50 @@ function App() {
     ]
   }, [requests])
 
-  const filteredRequests = useMemo(() => {
+  const searchedRequests = useMemo(() => {
     const query = searchTerm.trim().toLowerCase()
-    if (!query) return requests
-
-    return requests.filter((request) =>
-      [
-        request.reference_number,
-        request.order_number,
-        request.product_name,
-        request.status,
-        request.customers?.full_name,
-        request.customers?.email,
-      ]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(query)),
+    return requests.filter(
+      (request) =>
+        !query ||
+        [
+          request.reference_number,
+          request.order_number,
+          request.product_name,
+          request.status,
+          request.customers?.full_name,
+          request.customers?.email,
+        ]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(query)),
     )
   }, [requests, searchTerm])
+
+  const filteredRequests = useMemo(
+    () =>
+      searchedRequests.filter(
+        (request) =>
+          (reportStatusFilter === 'all' || request.status === reportStatusFilter) &&
+          (reportProductFilter === 'all' || request.product_name === reportProductFilter),
+      ),
+    [reportProductFilter, reportStatusFilter, searchedRequests],
+  )
+
+  const reportSummary = useMemo(() => {
+    const totalAmount = filteredRequests.reduce(
+      (total, request) => total + Number(request.amount_requested),
+      0,
+    )
+    const credited = filteredRequests.filter((request) =>
+      ['credited', 'completed'].includes(request.status),
+    ).length
+
+    return {
+      count: filteredRequests.length,
+      credited,
+      totalAmount,
+      averageAmount: filteredRequests.length ? totalAmount / filteredRequests.length : 0,
+    }
+  }, [filteredRequests])
 
   const selectedRequest = useMemo(
     () => requests.find((request) => request.id === selectedRequestId) ?? requests[0] ?? null,
@@ -497,7 +538,7 @@ function App() {
 
   const visibleAuditEntries = useMemo(() => auditEntries.slice(0, 8), [auditEntries])
   const canManageUserAccounts = isHeadAdministrator(profile?.email ?? '')
-  const customerPanelRequests = profile?.role === 'administrator' ? filteredRequests : requests
+  const customerPanelRequests = profile?.role === 'administrator' ? searchedRequests : requests
 
   const paymentEta = useMemo(() => {
     const amount = Number(selectedPaymentRequest?.amount_requested ?? refundAmount) || 0
@@ -1538,7 +1579,7 @@ function App() {
     setNotice({ kind: 'success', message: 'Payment status updated.' })
   }
 
-  function handleExportReports() {
+  async function handleExportReports(format: ReportFormat) {
     const headers = ['Reference', 'Product', 'Customer', 'Email', 'Order', 'Amount', 'Status', 'Created']
     const rows = filteredRequests.map((request) => [
       request.reference_number,
@@ -1556,20 +1597,74 @@ function App() {
       return
     }
 
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `refund-report-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    const generatedAt = new Date()
+    const filenameDate = generatedAt.toISOString().slice(0, 10)
+    setActionLoading('export')
+
+    try {
+      if (format === 'csv') {
+        const csv = [headers, ...rows]
+          .map((row) => row.map(escapeCsvCell).join(','))
+          .join('\n')
+        downloadBlob(
+          new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }),
+          `refund-report-${filenameDate}.csv`,
+        )
+      } else {
+        const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+          import('jspdf'),
+          import('jspdf-autotable'),
+        ])
+        const document = new jsPDF({ format: 'a4', orientation: 'landscape', unit: 'pt' })
+        document.setFont('helvetica', 'bold')
+        document.setFontSize(18)
+        document.text('Refund Management Portal Report', 40, 42)
+        document.setFont('helvetica', 'normal')
+        document.setFontSize(9)
+        document.setTextColor(71, 85, 105)
+        document.text(`Generated: ${formatDateTime(generatedAt.toISOString())}`, 40, 60)
+        document.text(
+          `Status: ${reportStatusFilter === 'all' ? 'All' : formatStatus(reportStatusFilter)}  |  Product: ${
+            reportProductFilter === 'all' ? 'All' : reportProductFilter
+          }  |  Search: ${searchTerm.trim().slice(0, 80) || 'None'}`,
+          40,
+          76,
+        )
+        document.text(
+          `Records: ${reportSummary.count}  |  Total requested: $${reportSummary.totalAmount.toFixed(
+            2,
+          )}  |  Average: $${reportSummary.averageAmount.toFixed(2)}  |  Credited: ${reportSummary.credited}`,
+          40,
+          92,
+        )
+        autoTable(document, {
+          body: rows,
+          head: [headers],
+          margin: { left: 40, right: 40 },
+          startY: 108,
+          styles: { cellPadding: 5, fontSize: 8, overflow: 'linebreak' },
+          headStyles: { fillColor: [30, 64, 175], textColor: 255 },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+        })
+        document.save(`refund-report-${filenameDate}.pdf`)
+      }
+    } catch {
+      setNotice({ kind: 'error', message: `The ${format.toUpperCase()} report could not be generated.` })
+      return
+    } finally {
+      setActionLoading('')
+    }
+
     void logAudit('refund_report_exported', 'refund_request', null, {
+      format,
       count: rows.length,
-      exportedAt: new Date().toISOString(),
+      exportedAt: generatedAt.toISOString(),
+      productFilter: reportProductFilter,
+      search: searchTerm.trim() || null,
+      statusFilter: reportStatusFilter,
+      totalAmount: reportSummary.totalAmount,
     })
+    setNotice({ kind: 'success', message: `${format.toUpperCase()} report generated.` })
   }
 
   async function refreshOperations() {
@@ -2154,11 +2249,70 @@ function App() {
                   </div>
                   <input
                     className="search-input"
+                    maxLength={120}
                     onChange={(event) => setSearchTerm(event.target.value)}
                     placeholder="Search Customers"
                     value={searchTerm}
                   />
                 </div>
+                <div className="report-toolbar">
+                  <label>
+                    Status
+                    <select
+                      onChange={(event) => setReportStatusFilter(event.target.value)}
+                      value={reportStatusFilter}
+                    >
+                      <option value="all">All statuses</option>
+                      {reportStatuses.map((status) => (
+                        <option key={status} value={status}>
+                          {formatStatus(status)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Antivirus
+                    <select
+                      onChange={(event) => setReportProductFilter(event.target.value)}
+                      value={reportProductFilter}
+                    >
+                      <option value="all">All antivirus products</option>
+                      {antivirusOptions.map((option) => (
+                        <option key={option.label} value={option.label}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Export format
+                    <select
+                      onChange={(event) => setReportFormat(event.target.value as ReportFormat)}
+                      value={reportFormat}
+                    >
+                      <option value="csv">CSV spreadsheet</option>
+                      <option value="pdf">PDF report</option>
+                    </select>
+                  </label>
+                </div>
+                <dl className="report-summary" aria-label="Filtered report summary">
+                  <div>
+                    <dt>Visible records</dt>
+                    <dd>{reportSummary.count}</dd>
+                  </div>
+                  <div>
+                    <dt>Total requested</dt>
+                    <dd>${reportSummary.totalAmount.toFixed(2)}</dd>
+                  </div>
+                  <div>
+                    <dt>Average request</dt>
+                    <dd>${reportSummary.averageAmount.toFixed(2)}</dd>
+                  </div>
+                  <div>
+                    <dt>Credited</dt>
+                    <dd>{reportSummary.credited}</dd>
+                  </div>
+                </dl>
                 <div className="table-wrap">
                   <table>
                     <thead>
@@ -2275,16 +2429,16 @@ function App() {
                     Reject
                   </button>
                   <button
-                    disabled={filteredRequests.length === 0}
-                    onClick={handleExportReports}
+                    disabled={filteredRequests.length === 0 || actionLoading === 'export'}
+                    onClick={() => void handleExportReports(reportFormat)}
                     title={
                       filteredRequests.length === 0
                         ? 'No refund records available to export.'
-                        : 'Export visible refund records.'
+                        : `Export visible refund records as ${reportFormat.toUpperCase()}.`
                     }
                     type="button"
                   >
-                    Export Reports
+                    {actionLoading === 'export' ? 'Generating...' : `Export ${reportFormat.toUpperCase()}`}
                   </button>
                 </div>
               </section>
@@ -3086,6 +3240,21 @@ function isHeadAdministrator(email: string) {
   return email.trim().toLowerCase() === headAdministratorEmail
 }
 
+function escapeCsvCell(value: unknown) {
+  let text = String(value ?? '')
+  if (/^[=+\-@]/.test(text)) text = `'${text}`
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function getAntivirusOption(productName: string | null | undefined) {
   return (
     antivirusOptions.find((option) => option.label.toLowerCase() === productName?.toLowerCase()) ??
@@ -3129,7 +3298,9 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
       from,
     )} to ${formatAuditValue(to)}.`
   } else if (event.action === 'refund_report_exported') {
-    detail = `${actor} exported ${readMetadataString(metadata, 'count') || '0'} refund records.`
+    const format = (readMetadataString(metadata, 'format') || 'CSV').toUpperCase()
+    const total = Number(readMetadataString(metadata, 'totalAmount') || 0)
+    detail = `${actor} exported ${readMetadataString(metadata, 'count') || '0'} refund records as ${format} totaling $${total.toFixed(2)}.`
   } else if (event.action === 'internal_note_added') {
     detail = `${actor} added an internal note to refund ${reference || event.entity_id || 'request'}.`
   } else if (event.action === 'refund_submitted') {

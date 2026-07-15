@@ -45,6 +45,8 @@
 ## Operations
 
 - [ ] Export is disabled with no filtered records.
+- [ ] CSV and PDF exports match the visible search, status, and antivirus filters.
+- [ ] Export audit events record format, filters, count, total, actor, and timestamp.
 - [ ] Audit events identify actor, action, target, and timestamp.
 - [ ] Vercel logs contain no access tokens, service keys, or full bank details.
 - [ ] Banking API controls remain disabled until authorized credentials are supplied.

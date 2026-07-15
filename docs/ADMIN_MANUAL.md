@@ -35,7 +35,9 @@ The portal queues and dispatches emails for submission, document requests, appro
 
 ## Reports and audit
 
-Exports contain the currently filtered refund records and are disabled when no records are available. Audit events include timestamps, actors, targets, status changes, document access, notifications, user management, and payment workflow activity.
+Use the manager search, status filter, and antivirus filter to define the visible report dataset. The summary shows the visible record count, total requested amount, average request, and credited count. Choose CSV for spreadsheet analysis or PDF for a formatted operational report. Export remains disabled when no records match.
+
+Each export creates an audit event containing the format, active filters, record count, total amount, actor, and timestamp. Audit events also cover status changes, document access, notifications, user management, and payment workflow activity.
 
 ## Banking limitation
 

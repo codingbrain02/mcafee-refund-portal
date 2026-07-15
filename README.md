@@ -7,6 +7,7 @@ Secure web portal for customer refund intake, staff review, document verificatio
 - React 19, TypeScript, and Vite frontend
 - Supabase Auth, PostgreSQL, Realtime, Row Level Security, and private Storage
 - Vercel serverless functions for Resend delivery and signed document links
+- Filtered CSV and on-demand PDF operational reporting
 - Vercel production hosting with GitHub-based deployment
 - Database migrations under `supabase/migrations`
 
