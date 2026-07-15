@@ -547,6 +547,7 @@ function App() {
     await Promise.all([loadRefundRequests(), loadStatusHistory()])
 
     if (profileToLoad.role === 'administrator' || profileToLoad.role === 'refund_manager') {
+      await dispatchQueuedNotifications()
       await Promise.all([loadInternalNotes(), loadPaymentTransactions(), loadNotifications(), loadUsers()])
     }
 
@@ -687,6 +688,29 @@ function App() {
     }
 
     setNotifications((data ?? []) as NotificationRow[])
+  }
+
+  async function dispatchQueuedNotifications() {
+    if (!supabase) return false
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) return false
+
+    try {
+      const response = await fetch('/api/process-notifications', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      return response.ok
+    } catch {
+      return false
+    }
   }
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -1168,9 +1192,17 @@ function App() {
       to: nextStatus,
     })
 
+    const notificationDispatched =
+      nextStatus === 'credited' ? await dispatchQueuedNotifications() : true
+
     await refreshOperations()
     setActionLoading('')
-    setNotice({ kind: 'success', message: `Request moved to ${formatStatus(nextStatus)}.` })
+    setNotice({
+      kind: notificationDispatched ? 'success' : 'info',
+      message: notificationDispatched
+        ? `Request moved to ${formatStatus(nextStatus)}.`
+        : `Request moved to ${formatStatus(nextStatus)}. The email remains queued for another delivery attempt.`,
+    })
   }
 
   async function handleSaveInternalNote() {

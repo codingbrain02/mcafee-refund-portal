@@ -9,17 +9,6 @@ export default async function handler(request, response) {
     return
   }
 
-  const cronSecret = process.env.NOTIFICATION_CRON_SECRET ?? process.env.CRON_SECRET
-  const authorization = request.headers.authorization
-  const hasValidSecret =
-    request.headers['x-notification-secret'] === cronSecret ||
-    authorization === `Bearer ${cronSecret}`
-
-  if (cronSecret && !hasValidSecret) {
-    response.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const resendApiKey = process.env.RESEND_API_KEY
@@ -37,6 +26,46 @@ export default async function handler(request, response) {
       persistSession: false,
     },
   })
+
+  const cronSecret = process.env.NOTIFICATION_CRON_SECRET ?? process.env.CRON_SECRET
+  const authorization = request.headers.authorization
+  const bearerToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null
+  const hasValidSecret = Boolean(
+    cronSecret &&
+      (request.headers['x-notification-secret'] === cronSecret || bearerToken === cronSecret),
+  )
+
+  if (!hasValidSecret) {
+    if (!bearerToken) {
+      response.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(bearerToken)
+
+    if (authError || !user) {
+      response.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+
+    const { data: staffProfile, error: profileError } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (
+      profileError ||
+      !staffProfile ||
+      !['administrator', 'refund_manager'].includes(staffProfile.role)
+    ) {
+      response.status(403).json({ error: 'Staff access required' })
+      return
+    }
+  }
 
   const now = new Date().toISOString()
   const { data: notifications, error } = await supabase
