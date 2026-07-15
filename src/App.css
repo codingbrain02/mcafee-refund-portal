@@ -79,6 +79,31 @@ td,
   gap: 14px;
 }
 
+.auth-switch {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--quiet);
+}
+
+.login-card .auth-switch button {
+  min-height: 42px;
+  padding: 6px 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.login-card .auth-switch button.active {
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(24, 32, 51, 0.08);
+}
+
 .login-actions {
   display: flex;
   align-items: center;

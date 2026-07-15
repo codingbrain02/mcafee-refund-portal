@@ -16,6 +16,7 @@ import {
 import './App.css'
 
 type PortalView = 'customer' | 'manager' | 'admin' | 'bank'
+type AuthMode = 'sign-in' | 'sign-up'
 type NoticeKind = 'info' | 'success' | 'error'
 type RefundStatus =
   | 'submitted'
@@ -33,7 +34,7 @@ type Notice = {
   title?: string
 }
 
-type AuthDialog = 'confirm-sign-out' | null
+type AuthDialog = 'verify-email' | 'confirm-sign-out' | null
 
 type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
 type ReportFormat = 'csv' | 'pdf'
@@ -144,6 +145,8 @@ const viewLabels: Record<PortalView, string> = {
 function App() {
   const [view, setView] = useState<PortalView>('customer')
   const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [authMode, setAuthMode] = useState<AuthMode>('sign-in')
+  const [signupFullName, setSignupFullName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [newAccountFullName, setNewAccountFullName] = useState('')
@@ -832,6 +835,49 @@ function App() {
     setAuthPassword('')
     setIsAuthLoading(false)
     setIsSessionRestoring(false)
+  }
+
+  async function handleSignUp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase) return
+
+    const email = authEmail.trim().toLowerCase()
+    const fullName = signupFullName.trim()
+
+    if (!fullName || !email || authPassword.length < 8) {
+      setNotice({ kind: 'error', message: 'Enter your name, email, and an 8-character password.' })
+      return
+    }
+
+    setIsAuthLoading(true)
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: authPassword,
+      options: {
+        data: {
+          full_name: fullName,
+        },
+      },
+    })
+    setIsAuthLoading(false)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setSignupFullName('')
+    setAuthEmail('')
+    setAuthPassword('')
+    setAuthMode('sign-in')
+
+    if (data.session?.user.id) {
+      await supabase.auth.signOut()
+      setProfile(null)
+    }
+
+    setAuthDialog('verify-email')
+    setNotice({ kind: 'info', message: 'Use your authorized account to access the refund portal.' })
   }
 
   async function handleCreateUserAccount(event: FormEvent<HTMLFormElement>) {
@@ -1886,7 +1932,38 @@ function App() {
             <small>You will stay signed in on this browser.</small>
           </div>
         ) : !profile ? (
-          <form className="login-card" onSubmit={handleSignIn}>
+          <form
+            className="login-card"
+            onSubmit={authMode === 'sign-up' ? handleSignUp : handleSignIn}
+          >
+            <div className="auth-switch" aria-label="Account action">
+              <button
+                className={authMode === 'sign-in' ? 'active' : ''}
+                onClick={() => setAuthMode('sign-in')}
+                type="button"
+              >
+                Sign in
+              </button>
+              <button
+                className={authMode === 'sign-up' ? 'active' : ''}
+                onClick={() => setAuthMode('sign-up')}
+                type="button"
+              >
+                Create customer account
+              </button>
+            </div>
+            {authMode === 'sign-up' && (
+              <label>
+                Full Name
+                <input
+                  autoComplete="name"
+                  onChange={(event) => setSignupFullName(event.target.value)}
+                  required
+                  type="text"
+                  value={signupFullName}
+                />
+              </label>
+            )}
             <label>
               Email
               <input
@@ -1908,19 +1985,27 @@ function App() {
               />
             </label>
             <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
-              {isAuthLoading ? 'Signing in...' : 'Sign in'}
+              {isAuthLoading
+                ? authMode === 'sign-up'
+                  ? 'Creating...'
+                  : 'Signing in...'
+                : authMode === 'sign-up'
+                  ? 'Create customer account'
+                  : 'Sign in'}
             </button>
-            <div className="login-actions">
-              <span>Need access help?</span>
-              <button
-                className="reset-password-button"
-                disabled={isResetLoading}
-                onClick={handlePasswordReset}
-                type="button"
-              >
-                {isResetLoading ? 'Sending...' : 'Reset password'}
-              </button>
-            </div>
+            {authMode === 'sign-in' && (
+              <div className="login-actions">
+                <span>Need access help?</span>
+                <button
+                  className="reset-password-button"
+                  disabled={isResetLoading}
+                  onClick={handlePasswordReset}
+                  type="button"
+                >
+                  {isResetLoading ? 'Sending...' : 'Reset password'}
+                </button>
+              </div>
+            )}
           </form>
         ) : (
           <div className="account-summary">
@@ -3056,35 +3141,53 @@ function App() {
           <section
             aria-labelledby="auth-dialog-title"
             aria-modal="true"
-            className="customer-dialog danger"
+            className={`customer-dialog ${authDialog === 'confirm-sign-out' ? 'danger' : 'info'}`}
             role="dialog"
           >
-            <div>
-              <p className="eyebrow">Secure session</p>
-              <h2 id="auth-dialog-title">Sign out of the portal?</h2>
-            </div>
-            <p>
-              This will end your current session on this browser. Any unsaved form entries will
-              be cleared.
-            </p>
-            <div className="modal-actions">
-              <button
-                className="secondary-button"
-                disabled={isSigningOut}
-                onClick={() => setAuthDialog(null)}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className="danger-button"
-                disabled={isSigningOut}
-                onClick={() => void handleSignOut()}
-                type="button"
-              >
-                {isSigningOut ? 'Signing out...' : 'Log out'}
-              </button>
-            </div>
+            {authDialog === 'verify-email' ? (
+              <>
+                <div>
+                  <p className="eyebrow">Customer account verification</p>
+                  <h2 id="auth-dialog-title">Check your email</h2>
+                </div>
+                <p>
+                  Your customer account has been created. Open the verification email and confirm
+                  your address before signing in.
+                </p>
+                <button onClick={() => setAuthDialog(null)} type="button">
+                  Back to sign in
+                </button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="eyebrow">Secure session</p>
+                  <h2 id="auth-dialog-title">Sign out of the portal?</h2>
+                </div>
+                <p>
+                  This will end your current session on this browser. Any unsaved form entries will
+                  be cleared.
+                </p>
+                <div className="modal-actions">
+                  <button
+                    className="secondary-button"
+                    disabled={isSigningOut}
+                    onClick={() => setAuthDialog(null)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="danger-button"
+                    disabled={isSigningOut}
+                    onClick={() => void handleSignOut()}
+                    type="button"
+                  >
+                    {isSigningOut ? 'Signing out...' : 'Log out'}
+                  </button>
+                </div>
+              </>
+            )}
           </section>
         </div>
       )}

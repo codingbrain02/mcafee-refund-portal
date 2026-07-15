@@ -48,6 +48,15 @@ test('enforces staff account creation role boundaries', () => {
   assert.equal(canCreatePortalRole(refundManager, 'customer'), false)
 })
 
+test('public registration remains customer-only', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8')
+
+  assert.match(app, /async function handleSignUp/)
+  assert.match(app, /Create customer account/)
+  assert.match(schema, /else 'customer'::public\.user_role/)
+})
+
 test('deployment configuration contains core browser protections', () => {
   const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
   const headers = config.headers[0].headers
