@@ -3050,6 +3050,19 @@ function getManagerWorkflowActionState(
     }
   }
 
+  const requiredStatus: Record<ManagerWorkflowTarget, RefundStatus> = {
+    under_review: 'submitted',
+    documents_verified: 'under_review',
+    approved: 'documents_verified',
+  }
+
+  if (currentStatus !== requiredStatus[target]) {
+    return {
+      disabled: true,
+      reason: `${formatStatus(target)} becomes available after ${formatStatus(requiredStatus[target])}.`,
+    }
+  }
+
   const currentRank = requestStatusRank[currentStatus]
   const targetRank = managerWorkflowActionRank[target]
 

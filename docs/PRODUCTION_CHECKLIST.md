@@ -1,5 +1,13 @@
 # Production Checklist
 
+## User Acceptance Testing
+
+- Run `npm run uat:production` against the linked production Supabase project.
+- Confirm customer, manager, administrator, workflow, RLS, and realtime checks pass.
+- Confirm the command reports that temporary UAT records were removed.
+- Record the result using the procedure in `docs/UAT.md`.
+- Repeat banking UAT after authorized sandbox credentials are available.
+
 ## Automated
 
 - [ ] `npm run check` passes.

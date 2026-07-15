@@ -9,6 +9,7 @@
     "check": "npm run lint && npm test && npm run build",
     "lint": "eslint .",
     "test": "node --test tests/*.test.mjs",
+    "uat:production": "node scripts/production-uat.mjs --confirm-production",
     "preview": "vite preview",
     "create:admin": "node scripts/create-admin-user.mjs",
     "db:push": "node scripts/supabase-db-push.mjs"

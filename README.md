@@ -33,7 +33,10 @@ Do not commit `.env`, service-role keys, database passwords, Resend keys, or ban
 
 ```bash
 npm run check
+npm run uat:production
 ```
+
+`uat:production` runs a self-cleaning acceptance test against the configured Supabase project. See `docs/UAT.md` before running it.
 
 This runs linting, automated tests, TypeScript compilation, and the production Vite build. GitHub Actions runs the same checks for pushes and pull requests.
 
