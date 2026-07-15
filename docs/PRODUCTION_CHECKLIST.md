@@ -1,5 +1,7 @@
 # Production Checklist
 
+Items that depend on external accounts, approvals, or authorized banking credentials are tracked in [Pending Work](PENDING_WORK.md).
+
 ## User Acceptance Testing
 
 - Run `npm run uat:production` against the linked production Supabase project.

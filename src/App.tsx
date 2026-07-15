@@ -31,6 +31,7 @@ type RefundStatus =
 type Notice = {
   kind: NoticeKind
   message: string
+  title?: string
 }
 
 type AuthDialog = 'verify-email' | 'confirm-sign-out' | null
@@ -156,6 +157,9 @@ function App() {
   const [deleteTargetUser, setDeleteTargetUser] = useState<UserAccountRow | null>(null)
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('')
   const [isDeletingUser, setIsDeletingUser] = useState(false)
+  const [cancelTargetRequest, setCancelTargetRequest] = useState<RefundRequestRow | null>(null)
+  const [cancelConfirmationText, setCancelConfirmationText] = useState('')
+  const [isCancellingRefund, setIsCancellingRefund] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [isSessionRestoring, setIsSessionRestoring] = useState(hasSupabaseConfig)
   const [notice, setNotice] = useState<Notice>({
@@ -682,7 +686,7 @@ function App() {
 
     const { data, error } = await supabase
       .from('refund_documents')
-      .select('id, refund_request_id, document_type, mime_type, file_size_bytes, created_at')
+      .select('id, refund_request_id, document_type, storage_path, mime_type, file_size_bytes, created_at')
       .order('created_at', { ascending: false })
       .limit(100)
 
@@ -1208,8 +1212,63 @@ function App() {
     await refreshOperations()
   }
 
-  function showCustomerDialog(kind: NoticeKind, message: string) {
-    setCustomerDialog({ kind, message })
+  function showCustomerDialog(kind: NoticeKind, message: string, title?: string) {
+    setCustomerDialog({ kind, message, title })
+  }
+
+  async function handleCancelRefundRequest() {
+    if (!supabase || !cancelTargetRequest || cancelConfirmationText !== 'Cancel refund request') return
+
+    setIsCancellingRefund(true)
+    const referenceNumber = cancelTargetRequest.reference_number
+    const documentPaths = refundDocuments
+      .filter((document) => document.refund_request_id === cancelTargetRequest.id)
+      .map((document) => document.storage_path)
+
+    if (documentPaths.length > 0) {
+      const { error: storageError } = await supabase.storage
+        .from('refund-documents')
+        .remove(documentPaths)
+
+      if (storageError) {
+        setIsCancellingRefund(false)
+        setCancelTargetRequest(null)
+        setCancelConfirmationText('')
+        showCustomerDialog(
+          'error',
+          'The uploaded documents could not be removed securely. Please try again before cancelling this request.',
+          'Cancellation could not be completed',
+        )
+        return
+      }
+    }
+
+    const { error } = await supabase.rpc('cancel_refund_request', {
+      p_refund_request_id: cancelTargetRequest.id,
+      p_confirmation: cancelConfirmationText,
+    })
+    setIsCancellingRefund(false)
+
+    if (error) {
+      setCancelTargetRequest(null)
+      setCancelConfirmationText('')
+      showCustomerDialog(
+        'error',
+        getCustomerFriendlyError(error.message),
+        'Cancellation could not be completed',
+      )
+      return
+    }
+
+    setCancelTargetRequest(null)
+    setCancelConfirmationText('')
+    setSelectedRequestId((current) => current === cancelTargetRequest.id ? '' : current)
+    await refreshOperations()
+    showCustomerDialog(
+      'success',
+      `Refund request ${referenceNumber} was cancelled and permanently removed.`,
+      'Refund request cancelled',
+    )
   }
 
   async function changeRequestStatus(
@@ -2094,6 +2153,12 @@ function App() {
                           documents={refundDocuments.filter((document) => document.refund_request_id === request.id)}
                           documentLoadingId={documentLoadingId}
                           key={request.id}
+                          onCancel={profile.role === 'customer' && request.status === 'submitted'
+                            ? () => {
+                                setCancelTargetRequest(request)
+                                setCancelConfirmationText('')
+                              }
+                            : undefined}
                           onOpenDocument={handleOpenDocument}
                           request={request}
                           timeline={statusHistory.filter((item) => item.refund_request_id === request.id)}
@@ -2917,9 +2982,9 @@ function App() {
                 {customerDialog.kind === 'success' ? 'Request update' : 'Action needed'}
               </p>
               <h2 id="customer-dialog-title">
-                {customerDialog.kind === 'success'
+                {customerDialog.title ?? (customerDialog.kind === 'success'
                   ? 'Refund request received'
-                  : 'Please review your request'}
+                  : 'Please review your request')}
               </h2>
             </div>
             <p>{customerDialog.message}</p>
@@ -3034,6 +3099,55 @@ function App() {
           </section>
         </div>
       )}
+
+      {cancelTargetRequest && (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="cancel-refund-dialog-title"
+            aria-modal="true"
+            className="customer-dialog danger"
+            role="dialog"
+          >
+            <div>
+              <p className="eyebrow">Permanent cancellation</p>
+              <h2 id="cancel-refund-dialog-title">Cancel refund request?</h2>
+            </div>
+            <p>
+              Request <strong>{cancelTargetRequest.reference_number}</strong> and its uploaded
+              documents will be permanently removed. This action cannot be undone. Type{' '}
+              <strong>Cancel refund request</strong> to confirm.
+            </p>
+            <input
+              aria-label="Cancel refund confirmation text"
+              className="delete-confirm-input"
+              onChange={(event) => setCancelConfirmationText(event.target.value)}
+              placeholder="Cancel refund request"
+              value={cancelConfirmationText}
+            />
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                disabled={isCancellingRefund}
+                onClick={() => {
+                  setCancelTargetRequest(null)
+                  setCancelConfirmationText('')
+                }}
+                type="button"
+              >
+                Keep request
+              </button>
+              <button
+                className="danger-button"
+                disabled={isCancellingRefund || cancelConfirmationText !== 'Cancel refund request'}
+                onClick={() => void handleCancelRefundRequest()}
+                type="button"
+              >
+                {isCancellingRefund ? 'Cancelling...' : 'Cancel request'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }
@@ -3060,6 +3174,7 @@ function WorkflowCard({ compact = false }: { compact?: boolean }) {
 function RequestSummaryCard({
   documents = [],
   documentLoadingId = '',
+  onCancel,
   onOpenDocument,
   request,
   showCustomer = false,
@@ -3067,6 +3182,7 @@ function RequestSummaryCard({
 }: {
   documents?: RefundDocumentRow[]
   documentLoadingId?: string
+  onCancel?: () => void
   onOpenDocument?: (document: RefundDocumentRow) => void | Promise<void>
   request: RefundRequestRow
   showCustomer?: boolean
@@ -3131,6 +3247,13 @@ function RequestSummaryCard({
               {item.internal_notes && <p>{item.internal_notes}</p>}
             </div>
           ))}
+        </div>
+      )}
+      {onCancel && (
+        <div className="request-summary-actions">
+          <button className="danger-button" onClick={onCancel} type="button">
+            Cancel request
+          </button>
         </div>
       )}
     </article>
@@ -3305,6 +3428,8 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
     detail = `${actor} added an internal note to refund ${reference || event.entity_id || 'request'}.`
   } else if (event.action === 'refund_submitted') {
     detail = `${actor} submitted refund ${reference || event.entity_id || 'request'}.`
+  } else if (event.action === 'refund_request_cancelled') {
+    detail = `${actor} cancelled and permanently removed a submitted refund request.`
   } else if (event.action === 'staff_refund_submitted') {
     detail = `${actor} created refund ${reference || event.entity_id || 'request'} for ${readMetadataString(
       metadata,

@@ -65,6 +65,7 @@ export type RefundDocumentRow = {
   id: string
   refund_request_id: string
   document_type: string
+  storage_path: string
   mime_type: string
   file_size_bytes: number
   created_at: string

@@ -1,5 +1,15 @@
 # API Documentation
 
+## Customer cancellation RPC
+
+`cancel_refund_request(p_refund_request_id uuid, p_confirmation text)` permanently removes an owned refund request while its status is `submitted`.
+
+- Authentication: verified customer session.
+- Confirmation: `p_confirmation` must exactly equal `Cancel refund request`.
+- Authorization: the request must belong to the active customer.
+- Cleanup: removes uploaded objects, documents, history, notes, notifications, payments, request audit records, and an orphaned customer record.
+- Audit: writes one generic `refund_request_cancelled` event without retaining the deleted request identifier or customer details.
+
 The frontend uses Supabase Auth and Row Level Security for refund data. Custom Vercel endpoints handle operations that require server-only credentials.
 
 ## Authentication

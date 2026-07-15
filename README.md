@@ -48,6 +48,7 @@ This runs linting, automated tests, TypeScript compilation, and the production V
 - [Administrator manual](docs/ADMIN_MANUAL.md)
 - [Technical architecture](docs/TECHNICAL.md)
 - [Production checklist](docs/PRODUCTION_CHECKLIST.md)
+- [Pending external setup and banking work](docs/PENDING_WORK.md)
 
 ## Production
 

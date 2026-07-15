@@ -97,15 +97,24 @@ const service = createClient(supabaseUrl, serviceRoleKey, {
 })
 const createdUserIds = []
 let requestId = null
+let cancellationRequestId = null
+let cancellationStoragePath = null
 let customerRecordId = null
 let realtimeChannel = null
 
 async function cleanup() {
-  if (realtimeChannel) await service.removeChannel(realtimeChannel).catch(() => undefined)
+  if (realtimeChannel) await realtimeChannel.unsubscribe().catch(() => undefined)
+  if (cancellationStoragePath) {
+    await service.storage.from('refund-documents').remove([cancellationStoragePath])
+  }
 
   if (requestId) {
     await service.from('audit_logs').delete().eq('entity_id', requestId)
     await service.from('refund_requests').delete().eq('id', requestId)
+  }
+  if (cancellationRequestId) {
+    await service.from('audit_logs').delete().eq('entity_id', cancellationRequestId)
+    await service.from('refund_requests').delete().eq('id', cancellationRequestId)
   }
   if (customerRecordId) await service.from('customers').delete().eq('id', customerRecordId)
   if (createdUserIds.length) await service.from('audit_logs').delete().in('actor_id', createdUserIds)
@@ -209,6 +218,88 @@ try {
   const unauthorizedStatus = await updateStatus(customer, requestId, 'under_review', identities[0].id)
   assert.ok(unauthorizedStatus.error, 'Customer status update should be rejected.')
   console.log('PASS customer authorization boundaries')
+
+  const { data: cancellationRequest, error: cancellationRequestError } = await customer
+    .from('refund_requests')
+    .insert({
+      customer_id: customerRecordId,
+      reference_number: `UAT-CANCEL-${stamp}`,
+      order_number: `ORDER-CANCEL-${stamp}`,
+      product_name: 'McAfee',
+      purchase_date: new Date().toISOString().slice(0, 10),
+      amount_requested: 1,
+      refund_reason: 'Automated cancellation acceptance test',
+      preferred_payment_method: 'Original payment method',
+      created_by: identities[0].id,
+    })
+    .select('id,status')
+    .single()
+  if (cancellationRequestError) throw cancellationRequestError
+  cancellationRequestId = cancellationRequest.id
+
+  cancellationStoragePath = `${cancellationRequestId}/uat-${stamp}.png`
+  const { error: cancellationUploadError } = await customer.storage
+    .from('refund-documents')
+    .upload(cancellationStoragePath, new Uint8Array([137, 80, 78, 71]), {
+      contentType: 'image/png',
+    })
+  if (cancellationUploadError) throw cancellationUploadError
+
+  const { error: cancellationDocumentError } = await customer.from('refund_documents').insert({
+    refund_request_id: cancellationRequestId,
+    document_type: 'uat-cancellation.png',
+    storage_path: cancellationStoragePath,
+    mime_type: 'image/png',
+    file_size_bytes: 4,
+    uploaded_by: identities[0].id,
+  })
+  if (cancellationDocumentError) throw cancellationDocumentError
+
+  const unauthorizedCancellation = await manager.rpc('cancel_refund_request', {
+    p_refund_request_id: cancellationRequestId,
+    p_confirmation: 'Cancel refund request',
+  })
+  assert.ok(unauthorizedCancellation.error, 'Manager must not cancel a customer-owned request.')
+
+  const cancellationWithStoredDocument = await customer.rpc('cancel_refund_request', {
+    p_refund_request_id: cancellationRequestId,
+    p_confirmation: 'Cancel refund request',
+  })
+  assert.ok(
+    cancellationWithStoredDocument.error,
+    'Cancellation must be blocked until owned storage objects are removed.',
+  )
+
+  const { error: cancellationStorageError } = await customer.storage
+    .from('refund-documents')
+    .remove([cancellationStoragePath])
+  if (cancellationStorageError) throw cancellationStorageError
+  cancellationStoragePath = null
+
+  const { error: cancellationError } = await customer.rpc('cancel_refund_request', {
+    p_refund_request_id: cancellationRequestId,
+    p_confirmation: 'Cancel refund request',
+  })
+  if (cancellationError) throw cancellationError
+
+  const { data: removedCancellation, error: removedCancellationError } = await service
+    .from('refund_requests')
+    .select('id')
+    .eq('id', cancellationRequestId)
+  if (removedCancellationError) throw removedCancellationError
+  assert.equal(removedCancellation.length, 0, 'Cancelled refund request still exists.')
+
+  const { data: cancellationAudit, error: cancellationAuditError } = await service
+    .from('audit_logs')
+    .select('entity_id,metadata')
+    .eq('actor_id', identities[0].id)
+    .eq('action', 'refund_request_cancelled')
+    .single()
+  if (cancellationAuditError) throw cancellationAuditError
+  assert.equal(cancellationAudit.entity_id, null)
+  assert.equal(cancellationAudit.metadata.recordRemoved, true)
+  cancellationRequestId = null
+  console.log('PASS owner-only submitted-request cancellation and permanent cleanup')
 
   const { data: managerRequests, error: managerRequestsError } = await manager
     .from('refund_requests')
