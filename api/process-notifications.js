@@ -6,10 +6,16 @@ import {
   getJsonBody,
   getValidUuid,
 } from '../server/security.js'
+import {
+  captureServerException,
+  captureServerMessage,
+  getSafeServerErrorMessage,
+  withServerMonitoring,
+} from '../server/monitoring.js'
 
 const maxBatchSize = 10
 
-export default async function handler(request, response) {
+async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store')
 
   if (request.method !== 'POST') {
@@ -24,6 +30,10 @@ export default async function handler(request, response) {
   const resendFromEmail = process.env.RESEND_FROM_EMAIL
 
   if (!supabaseUrl || !serviceRoleKey || !resendApiKey || !resendFromEmail) {
+    await captureServerMessage('Notification processor configuration is incomplete.', {
+      operation: 'configuration_check',
+      route: 'process-notifications',
+    })
     console.error('Notification processor configuration is incomplete.')
     response.status(500).json({ error: 'Notification delivery is temporarily unavailable' })
     return
@@ -85,8 +95,12 @@ export default async function handler(request, response) {
       }
     }
   } catch (error) {
+    await captureServerException(error, {
+      operation: 'notification_authorization',
+      route: 'process-notifications',
+    })
     console.error('Notification request authorization failed.', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: getSafeServerErrorMessage(error),
     })
     response.status(503).json({ error: 'Notification delivery is temporarily unavailable' })
     return
@@ -111,7 +125,11 @@ export default async function handler(request, response) {
   const { data: notifications, error } = await notificationQuery
 
   if (error) {
-    console.error('Failed to load queued notifications.', { error: error.message })
+    await captureServerException(error, {
+      operation: 'load_notification_queue',
+      route: 'process-notifications',
+    })
+    console.error('Failed to load queued notifications.', { error: getSafeServerErrorMessage(error) })
     response.status(500).json({ error: 'Queued notifications could not be loaded' })
     return
   }
@@ -174,6 +192,14 @@ export default async function handler(request, response) {
         })
         .eq('id', notification.id)
 
+      if (isFinalAttempt) {
+        await captureServerException(sendError, {
+          operation: 'email_delivery_final_attempt',
+          provider: 'resend',
+          route: 'process-notifications',
+        })
+      }
+
       results.push({ id: notification.id, status: isFinalAttempt ? 'failed' : 'retry' })
     }
   }
@@ -183,6 +209,8 @@ export default async function handler(request, response) {
     results,
   })
 }
+
+export default withServerMonitoring(handler, 'process-notifications')
 
 function buildEmailHtml(notification, request) {
   const refund = Array.isArray(notification.refund_requests)

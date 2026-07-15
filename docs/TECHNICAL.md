@@ -37,7 +37,9 @@ Manager reporting filters the role-authorized in-memory refund dataset by search
 
 ## Failure behavior
 
-Email failures remain queued with retry metadata. Staff session restoration retries due messages. API errors are sanitized for users and written to Vercel logs. A React error boundary provides a controlled reload path after unexpected rendering failures.
+Email failures remain queued with retry metadata. Staff session restoration retries due messages. API errors are sanitized for users and Vercel logs. A React error boundary provides a controlled reload path after unexpected rendering failures.
+
+Optional Sentry monitoring captures frontend boundary errors, serverless exceptions, database health failures, signed-link failures, and final email-delivery failures. A shared recursive scrubber removes PII, credentials, request bodies, and banking fields before capture. Runtime monitoring, tracing, and source-map upload remain independently disabled until their environment variables are configured.
 
 ## Banking integration boundary
 

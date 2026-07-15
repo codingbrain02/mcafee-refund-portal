@@ -1,6 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
+import {
+  captureServerException,
+  getSafeServerErrorMessage,
+  isServerMonitoringEnabled,
+  withServerMonitoring,
+} from '../server/monitoring.js'
 
-export default async function handler(request, response) {
+async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store')
 
   if (request.method !== 'GET') {
@@ -17,7 +23,11 @@ export default async function handler(request, response) {
     response.status(503).json({
       status: 'unavailable',
       checkedAt: new Date().toISOString(),
-      components: { database: 'unconfigured', email: resendConfigured ? 'configured' : 'unconfigured' },
+      components: {
+        database: 'unconfigured',
+        email: resendConfigured ? 'configured' : 'unconfigured',
+        monitoring: isServerMonitoringEnabled ? 'configured' : 'unconfigured',
+      },
     })
     return
   }
@@ -28,11 +38,16 @@ export default async function handler(request, response) {
   const { error } = await supabase.from('roles').select('id').limit(1)
 
   if (error) {
-    console.error('Health check database query failed.', { error: error.message })
+    await captureServerException(error, { operation: 'database_health_check', route: 'health' })
+    console.error('Health check database query failed.', { error: getSafeServerErrorMessage(error) })
     response.status(503).json({
       status: 'degraded',
       checkedAt: new Date().toISOString(),
-      components: { database: 'unavailable', email: resendConfigured ? 'configured' : 'unconfigured' },
+      components: {
+        database: 'unavailable',
+        email: resendConfigured ? 'configured' : 'unconfigured',
+        monitoring: isServerMonitoringEnabled ? 'configured' : 'unconfigured',
+      },
     })
     return
   }
@@ -40,6 +55,12 @@ export default async function handler(request, response) {
   response.status(200).json({
     status: resendConfigured ? 'healthy' : 'degraded',
     checkedAt: new Date().toISOString(),
-    components: { database: 'available', email: resendConfigured ? 'configured' : 'unconfigured' },
+    components: {
+      database: 'available',
+      email: resendConfigured ? 'configured' : 'unconfigured',
+      monitoring: isServerMonitoringEnabled ? 'configured' : 'unconfigured',
+    },
   })
 }
+
+export default withServerMonitoring(handler, 'health')
