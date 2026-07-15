@@ -444,6 +444,19 @@ function App() {
     [selectedRequest, selectedStatusHistory],
   )
 
+  const documentsAlreadyRequested = useMemo(
+    () =>
+      Boolean(
+        selectedRequest &&
+          notifications.some(
+            (notification) =>
+              notification.refund_request_id === selectedRequest.id &&
+              notification.template === 'documents_requested',
+          ),
+      ),
+    [notifications, selectedRequest],
+  )
+
   const registeredCustomerAccounts = useMemo(
     () => users.filter((user) => user.role === 'customer'),
     [users],
@@ -690,7 +703,7 @@ function App() {
     setNotifications((data ?? []) as NotificationRow[])
   }
 
-  async function dispatchQueuedNotifications() {
+  async function dispatchQueuedNotifications(refundRequestId?: string) {
     if (!supabase) return false
 
     const {
@@ -704,7 +717,9 @@ function App() {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ refundRequestId }),
       })
 
       return response.ok
@@ -973,6 +988,8 @@ function App() {
       internal_notes: 'Customer submitted refund request.',
     })
 
+    const notificationDispatched = await dispatchQueuedNotifications(refund.id)
+
     for (const file of files) {
       if (file.size === 0) continue
 
@@ -1014,8 +1031,10 @@ function App() {
     event.currentTarget.reset()
     setRefundAmount('')
     showCustomerDialog(
-      'success',
-      `Refund request ${referenceNumber} was submitted. You can track it from My refund requests.`,
+      notificationDispatched ? 'success' : 'info',
+      notificationDispatched
+        ? `Refund request ${referenceNumber} was submitted. A confirmation email is on its way.`
+        : `Refund request ${referenceNumber} was submitted. The confirmation email remains queued.`,
     )
     await logAudit('refund_submitted', 'refund_request', refund.id, { referenceNumber })
     await loadRefundRequests()
@@ -1115,9 +1134,12 @@ function App() {
     setStaffRefundAmount('')
     setStaffIntakeProduct('McAfee')
     setSelectedRequestId(refundId)
+    const notificationDispatched = await dispatchQueuedNotifications(refundId)
     showCustomerDialog(
-      'success',
-      `Refund request ${referenceNumber} was created for ${fullName}. It is now available in the manager queue.`,
+      notificationDispatched ? 'success' : 'info',
+      notificationDispatched
+        ? `Refund request ${referenceNumber} was created for ${fullName}. A confirmation email is on its way.`
+        : `Refund request ${referenceNumber} was created for ${fullName}. The confirmation email remains queued.`,
     )
     await refreshOperations()
   }
@@ -1192,8 +1214,9 @@ function App() {
       to: nextStatus,
     })
 
-    const notificationDispatched =
-      nextStatus === 'credited' ? await dispatchQueuedNotifications() : true
+    const notificationDispatched = ['approved', 'rejected', 'credited'].includes(nextStatus)
+      ? await dispatchQueuedNotifications(request.id)
+      : true
 
     await refreshOperations()
     setActionLoading('')
@@ -1231,6 +1254,36 @@ function App() {
     setInternalNote('')
     setActionLoading('')
     setNotice({ kind: 'success', message: 'Internal note saved.' })
+  }
+
+  async function handleRequestDocuments() {
+    if (!supabase || !selectedRequest || !internalNote.trim()) {
+      setNotice({ kind: 'error', message: 'Select an under-review request and describe the required documents.' })
+      return
+    }
+
+    setActionLoading('request-documents')
+    const { error } = await supabase.rpc('request_refund_documents', {
+      p_message: internalNote.trim(),
+      p_refund_request_id: selectedRequest.id,
+    })
+
+    if (error) {
+      setActionLoading('')
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    const notificationDispatched = await dispatchQueuedNotifications(selectedRequest.id)
+    setInternalNote('')
+    await refreshOperations()
+    setActionLoading('')
+    setNotice({
+      kind: notificationDispatched ? 'success' : 'info',
+      message: notificationDispatched
+        ? 'The customer was emailed with the document request.'
+        : 'The document request was saved and its email remains queued.',
+    })
   }
 
   async function handleUpdateUserRole(user: UserAccountRow, role: UserRole) {
@@ -2194,14 +2247,36 @@ function App() {
                   placeholder="Add internal comments for the selected request."
                   value={internalNote}
                 />
-                <button
-                  className="secondary-action"
-                  disabled={!selectedRequest || !internalNote.trim() || actionLoading === 'note'}
-                  onClick={() => void handleSaveInternalNote()}
-                  type="button"
-                >
-                  Save note
-                </button>
+                <div className="button-row">
+                  <button
+                    className="secondary-action"
+                    disabled={!selectedRequest || !internalNote.trim() || actionLoading === 'note'}
+                    onClick={() => void handleSaveInternalNote()}
+                    type="button"
+                  >
+                    Save note
+                  </button>
+                  <button
+                    disabled={
+                      !selectedRequest ||
+                      selectedRequest.status !== 'under_review' ||
+                      !internalNote.trim() ||
+                      documentsAlreadyRequested ||
+                      actionLoading === 'request-documents'
+                    }
+                    onClick={() => void handleRequestDocuments()}
+                    title={
+                      documentsAlreadyRequested
+                        ? 'Documents were already requested for this refund.'
+                        : selectedRequest?.status !== 'under_review'
+                          ? 'Start the manager review before requesting documents.'
+                          : 'Email the customer with the document request entered above.'
+                    }
+                    type="button"
+                  >
+                    Request documents
+                  </button>
+                </div>
                 <div className="timeline-list">
                   {selectedTimeline.map((item) => (
                     <article key={item.id}>
@@ -2923,6 +2998,10 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
     detail = `${actor} queued ${readMetadataString(metadata, 'provider') || 'email'} notification for refund ${
       reference || 'request'
     }.`
+  } else if (event.action === 'documents_requested') {
+    detail = `${actor} requested additional customer documents for refund ${
+      reference || event.entity_id || 'request'
+    }: ${readMetadataString(metadata, 'requestedDocuments') || 'Details recorded in the request.'}`
   }
 
   return {
