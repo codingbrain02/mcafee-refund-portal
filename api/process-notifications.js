@@ -1,11 +1,19 @@
 import { createClient } from '@supabase/supabase-js'
+import {
+  authenticatePortalUser,
+  consumeRateLimit,
+  getBearerToken,
+  getJsonBody,
+  getValidUuid,
+} from '../server/security.js'
 
 const maxBatchSize = 10
-const refundIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export default async function handler(request, response) {
-  if (!['GET', 'POST'].includes(request.method)) {
-    response.setHeader('Allow', 'GET, POST')
+  response.setHeader('Cache-Control', 'no-store')
+
+  if (request.method !== 'POST') {
+    response.setHeader('Allow', 'POST')
     response.status(405).json({ error: 'Method not allowed' })
     return
   }
@@ -16,9 +24,8 @@ export default async function handler(request, response) {
   const resendFromEmail = process.env.RESEND_FROM_EMAIL
 
   if (!supabaseUrl || !serviceRoleKey || !resendApiKey || !resendFromEmail) {
-    response.status(500).json({
-      error: 'Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY, or RESEND_FROM_EMAIL.',
-    })
+    console.error('Notification processor configuration is incomplete.')
+    response.status(500).json({ error: 'Notification delivery is temporarily unavailable' })
     return
   }
 
@@ -29,61 +36,60 @@ export default async function handler(request, response) {
   })
 
   const cronSecret = process.env.NOTIFICATION_CRON_SECRET ?? process.env.CRON_SECRET
-  const authorization = request.headers.authorization
-  const bearerToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null
-  const requestedRefundId = getRequestedRefundId(request)
+  const bearerToken = getBearerToken(request)
+  const requestedRefundId = getValidUuid(getJsonBody(request).refundRequestId)
   const hasValidSecret = Boolean(
     cronSecret &&
       (request.headers['x-notification-secret'] === cronSecret || bearerToken === cronSecret),
   )
 
-  if (!hasValidSecret) {
-    if (!bearerToken) {
-      response.status(401).json({ error: 'Unauthorized' })
+  try {
+    const withinLimit = await consumeRateLimit(supabase, request, 'notifications', 30)
+    if (!withinLimit) {
+      response.setHeader('Retry-After', '60')
+      response.status(429).json({ error: 'Too many notification requests. Try again shortly.' })
       return
     }
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser(bearerToken)
-
-    if (authError || !user) {
-      response.status(401).json({ error: 'Unauthorized' })
-      return
-    }
-
-    const { data: userProfile, error: profileError } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (profileError || !userProfile) {
-      response.status(403).json({ error: 'Portal access required' })
-      return
-    }
-
-    const isStaff = ['administrator', 'refund_manager'].includes(userProfile.role)
-
-    if (!isStaff) {
-      if (!requestedRefundId) {
-        response.status(403).json({ error: 'A valid refund request is required' })
+    if (!hasValidSecret) {
+      const userProfile = await authenticatePortalUser(supabase, bearerToken)
+      if (!userProfile) {
+        response.status(401).json({ error: 'Unauthorized' })
         return
       }
 
-      const { data: ownedRequest, error: ownershipError } = await supabase
-        .from('refund_requests')
-        .select('id')
-        .eq('id', requestedRefundId)
-        .eq('created_by', user.id)
-        .maybeSingle()
+      const isStaff = ['administrator', 'refund_manager'].includes(userProfile.role)
 
-      if (ownershipError || !ownedRequest) {
-        response.status(403).json({ error: 'Refund request access denied' })
-        return
+      if (!isStaff) {
+        if (!requestedRefundId) {
+          response.status(403).json({ error: 'A valid refund request is required' })
+          return
+        }
+
+        const { data: ownedRequest, error: ownershipError } = await supabase
+          .from('refund_requests')
+          .select('id, created_by, customers(email)')
+          .eq('id', requestedRefundId)
+          .maybeSingle()
+        const customer = Array.isArray(ownedRequest?.customers)
+          ? ownedRequest.customers[0]
+          : ownedRequest?.customers
+        const isOwner =
+          ownedRequest?.created_by === userProfile.id ||
+          Boolean(customer?.email && customer.email.toLowerCase() === userProfile.email.toLowerCase())
+
+        if (ownershipError || !ownedRequest || !isOwner) {
+          response.status(403).json({ error: 'Refund request access denied' })
+          return
+        }
       }
     }
+  } catch (error) {
+    console.error('Notification request authorization failed.', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    })
+    response.status(503).json({ error: 'Notification delivery is temporarily unavailable' })
+    return
   }
 
   const now = new Date().toISOString()
@@ -105,7 +111,8 @@ export default async function handler(request, response) {
   const { data: notifications, error } = await notificationQuery
 
   if (error) {
-    response.status(500).json({ error: error.message })
+    console.error('Failed to load queued notifications.', { error: error.message })
+    response.status(500).json({ error: 'Queued notifications could not be loaded' })
     return
   }
 
@@ -175,20 +182,6 @@ export default async function handler(request, response) {
     processed: results.length,
     results,
   })
-}
-
-function getRequestedRefundId(request) {
-  if (request.method !== 'POST') return null
-
-  try {
-    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body
-    const refundRequestId = body?.refundRequestId
-    return typeof refundRequestId === 'string' && refundIdPattern.test(refundRequestId)
-      ? refundRequestId
-      : null
-  } catch {
-    return null
-  }
 }
 
 function buildEmailHtml(notification, request) {

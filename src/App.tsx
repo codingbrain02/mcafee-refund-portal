@@ -5,6 +5,7 @@ import {
   type InternalNoteRow,
   type NotificationRow,
   type PaymentTransactionRow,
+  type RefundDocumentRow,
   supabase,
   type RefundRequestRow,
   type StatusHistoryRow,
@@ -166,6 +167,7 @@ function App() {
   const [internalNotes, setInternalNotes] = useState<InternalNoteRow[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([])
   const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransactionRow[]>([])
+  const [refundDocuments, setRefundDocuments] = useState<RefundDocumentRow[]>([])
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRequestId, setSelectedRequestId] = useState('')
@@ -175,6 +177,7 @@ function App() {
   const [transactionReference, setTransactionReference] = useState('')
   const [paymentStatus, setPaymentStatus] = useState('submitted')
   const [actionLoading, setActionLoading] = useState('')
+  const [documentLoadingId, setDocumentLoadingId] = useState('')
 
   const allowedViews = useMemo(() => getAllowedViews(profile?.role), [profile])
   const activeView = allowedViews.includes(view) ? view : allowedViews[0]
@@ -242,6 +245,7 @@ function App() {
     if (profile) {
       void loadRefundRequests()
       void loadStatusHistory()
+      void loadRefundDocuments()
     }
   }, [profile])
 
@@ -277,6 +281,7 @@ function App() {
       .channel(`portal-realtime-${profile.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'refund_requests' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'refund_status_history' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'refund_documents' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_notes' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payment_transactions' }, queueRealtimeRefresh)
@@ -557,7 +562,7 @@ function App() {
   }
 
   async function loadInitialPortalData(profileToLoad: UserProfile) {
-    await Promise.all([loadRefundRequests(), loadStatusHistory()])
+    await Promise.all([loadRefundRequests(), loadStatusHistory(), loadRefundDocuments()])
 
     if (profileToLoad.role === 'administrator' || profileToLoad.role === 'refund_manager') {
       await dispatchQueuedNotifications()
@@ -629,6 +634,23 @@ function App() {
     }
 
     setStatusHistory((data ?? []) as StatusHistoryRow[])
+  }
+
+  async function loadRefundDocuments() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('refund_documents')
+      .select('id, refund_request_id, document_type, mime_type, file_size_bytes, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: error.message })
+      return
+    }
+
+    setRefundDocuments((data ?? []) as RefundDocumentRow[])
   }
 
   async function loadInternalNotes() {
@@ -878,6 +900,7 @@ function App() {
     setInternalNotes([])
     setAuditLogs([])
     setPaymentTransactions([])
+    setRefundDocuments([])
     setNotifications([])
     setSelectedRequestId('')
     setView('customer')
@@ -1286,6 +1309,46 @@ function App() {
     })
   }
 
+  async function handleOpenDocument(document: RefundDocumentRow) {
+    if (!supabase) return
+
+    setDocumentLoadingId(document.id)
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      setDocumentLoadingId('')
+      setNotice({ kind: 'error', message: 'Your session expired. Sign in again to open this document.' })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/document-link', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ documentId: document.id }),
+      })
+      const result = (await response.json().catch(() => ({}))) as { error?: string; url?: string }
+
+      if (!response.ok || !result.url) {
+        throw new Error(result.error || 'A secure document link could not be created.')
+      }
+
+      window.open(result.url, '_blank', 'noopener,noreferrer')
+    } catch (error) {
+      setNotice({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'A secure document link could not be created.',
+      })
+    } finally {
+      setDocumentLoadingId('')
+    }
+  }
+
   async function handleUpdateUserRole(user: UserAccountRow, role: UserRole) {
     if (!supabase || !profile) return
 
@@ -1512,6 +1575,7 @@ function App() {
   async function refreshOperations() {
     await loadRefundRequests()
     await loadStatusHistory()
+    await loadRefundDocuments()
 
     if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
       await loadInternalNotes()
@@ -1528,6 +1592,7 @@ function App() {
   async function refreshRealtimeData(role: UserRole) {
     await loadRefundRequests()
     await loadStatusHistory()
+    await loadRefundDocuments()
 
     if (role === 'administrator' || role === 'refund_manager') {
       await loadInternalNotes()
@@ -1775,7 +1840,14 @@ function App() {
                 />
                 <div className="request-list admin-customer-request-list">
                   {customerPanelRequests.map((request) => (
-                    <RequestSummaryCard key={request.id} request={request} showCustomer />
+                    <RequestSummaryCard
+                      documents={refundDocuments.filter((document) => document.refund_request_id === request.id)}
+                      documentLoadingId={documentLoadingId}
+                      key={request.id}
+                      onOpenDocument={handleOpenDocument}
+                      request={request}
+                      showCustomer
+                    />
                   ))}
                   {customerPanelRequests.length === 0 && (
                     <p className="empty-state">No customer refund requests found.</p>
@@ -1924,7 +1996,10 @@ function App() {
                     <div className="request-list">
                       {customerPanelRequests.map((request) => (
                         <RequestSummaryCard
+                          documents={refundDocuments.filter((document) => document.refund_request_id === request.id)}
+                          documentLoadingId={documentLoadingId}
                           key={request.id}
+                          onOpenDocument={handleOpenDocument}
                           request={request}
                           timeline={statusHistory.filter((item) => item.refund_request_id === request.id)}
                         />
@@ -2241,6 +2316,15 @@ function App() {
                       </select>
                     </label>
                   </div>
+                )}
+                {selectedRequest && (
+                  <DocumentList
+                    documents={refundDocuments.filter(
+                      (document) => document.refund_request_id === selectedRequest.id,
+                    )}
+                    loadingId={documentLoadingId}
+                    onOpen={handleOpenDocument}
+                  />
                 )}
                 <textarea
                   onChange={(event) => setInternalNote(event.target.value)}
@@ -2820,10 +2904,16 @@ function WorkflowCard({ compact = false }: { compact?: boolean }) {
 }
 
 function RequestSummaryCard({
+  documents = [],
+  documentLoadingId = '',
+  onOpenDocument,
   request,
   showCustomer = false,
   timeline = [],
 }: {
+  documents?: RefundDocumentRow[]
+  documentLoadingId?: string
+  onOpenDocument?: (document: RefundDocumentRow) => void | Promise<void>
   request: RefundRequestRow
   showCustomer?: boolean
   timeline?: StatusHistoryRow[]
@@ -2870,6 +2960,13 @@ function RequestSummaryCard({
           <dd>{formatDate(request.created_at)}</dd>
         </div>
       </dl>
+      {onOpenDocument && (
+        <DocumentList
+          documents={documents}
+          loadingId={documentLoadingId}
+          onOpen={onOpenDocument}
+        />
+      )}
       {orderedTimeline.length > 0 && (
         <div className="customer-status-timeline">
           <span>Status timeline</span>
@@ -2883,6 +2980,41 @@ function RequestSummaryCard({
         </div>
       )}
     </article>
+  )
+}
+
+function DocumentList({
+  documents,
+  loadingId,
+  onOpen,
+}: {
+  documents: RefundDocumentRow[]
+  loadingId: string
+  onOpen: (document: RefundDocumentRow) => void | Promise<void>
+}) {
+  return (
+    <div className="secure-document-list">
+      <span>Supporting documents</span>
+      {documents.length === 0 ? (
+        <p>No documents uploaded.</p>
+      ) : (
+        documents.map((document) => (
+          <div key={document.id}>
+            <div>
+              <strong>{document.document_type}</strong>
+              <small>{formatFileSize(document.file_size_bytes)}</small>
+            </div>
+            <button
+              disabled={loadingId === document.id}
+              onClick={() => void onOpen(document)}
+              type="button"
+            >
+              {loadingId === document.id ? 'Opening...' : 'Open'}
+            </button>
+          </div>
+        ))
+      )}
+    </div>
   )
 }
 
@@ -3002,6 +3134,10 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
     detail = `${actor} requested additional customer documents for refund ${
       reference || event.entity_id || 'request'
     }: ${readMetadataString(metadata, 'requestedDocuments') || 'Details recorded in the request.'}`
+  } else if (event.action === 'document_link_created') {
+    detail = `${actor} generated a time-limited link for ${
+      readMetadataString(metadata, 'documentType') || 'a supporting document'
+    } on refund ${reference || readMetadataString(metadata, 'refundRequestId') || 'request'}.`
   }
 
   return {
@@ -3085,6 +3221,13 @@ function formatDateTime(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(value))
+}
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 'Unknown size'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function getCustomerFriendlyError(message: string) {
