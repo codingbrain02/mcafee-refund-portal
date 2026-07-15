@@ -215,6 +215,28 @@ try {
   if (customerAuditError) throw customerAuditError
   assert.equal(customerAudit.length, 0)
 
+  const { data: headProfile, error: headProfileError } = await service
+    .from('users')
+    .select('id,email')
+    .ilike('email', 'jccodingbrain@gmail.com')
+    .single()
+  if (headProfileError) throw headProfileError
+
+  const { data: administratorVisibleHead, error: administratorVisibleHeadError } = await administrator
+    .from('users')
+    .select('id')
+    .eq('id', headProfile.id)
+  if (administratorVisibleHeadError) throw administratorVisibleHeadError
+  assert.equal(administratorVisibleHead.length, 0, 'Ordinary administrator can see the head account.')
+
+  const { data: managerVisibleHead, error: managerVisibleHeadError } = await manager
+    .from('users')
+    .select('id')
+    .eq('id', headProfile.id)
+  if (managerVisibleHeadError) throw managerVisibleHeadError
+  assert.equal(managerVisibleHead.length, 0, 'Refund manager can see the head account.')
+  console.log('PASS exclusive head administrator account visibility')
+
   const unauthorizedStatus = await updateStatus(customer, requestId, 'under_review', identities[0].id)
   assert.ok(unauthorizedStatus.error, 'Customer status update should be rejected.')
   console.log('PASS customer authorization boundaries')

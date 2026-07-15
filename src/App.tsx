@@ -272,13 +272,13 @@ function App() {
       void loadInternalNotes()
       void loadPaymentTransactions()
       void loadNotifications()
-      void loadUsers()
+      void loadUsers(profile.email)
     }
 
     if (profile?.role === 'administrator') {
       void loadAuditLogs()
     }
-  }, [profile?.role])
+  }, [profile?.email, profile?.role])
 
   useEffect(() => {
     const client = supabase
@@ -611,7 +611,12 @@ function App() {
 
     if (profileToLoad.role === 'administrator' || profileToLoad.role === 'refund_manager') {
       await dispatchQueuedNotifications()
-      await Promise.all([loadInternalNotes(), loadPaymentTransactions(), loadNotifications(), loadUsers()])
+      await Promise.all([
+        loadInternalNotes(),
+        loadPaymentTransactions(),
+        loadNotifications(),
+        loadUsers(profileToLoad.email),
+      ])
     }
 
     if (profileToLoad.role === 'administrator') {
@@ -645,7 +650,7 @@ function App() {
     )
   }
 
-  async function loadUsers() {
+  async function loadUsers(viewerEmail: string) {
     if (!supabase) return
 
     const { data, error } = await supabase
@@ -661,7 +666,12 @@ function App() {
       return
     }
 
-    setUsers((data ?? []) as UserAccountRow[])
+    const canSeeHeadAdministrator = isHeadAdministrator(viewerEmail)
+    setUsers(
+      ((data ?? []) as UserAccountRow[]).filter(
+        (user) => canSeeHeadAdministrator || !isHeadAdministrator(user.email),
+      ),
+    )
   }
 
   async function loadStatusHistory() {
@@ -1485,7 +1495,7 @@ function App() {
       targetName: user.full_name,
       to: role,
     })
-    await loadUsers()
+    await loadUsers(profile.email)
     setNotice({ kind: 'success', message: `${user.full_name} is now ${role.replace('_', ' ')}.` })
   }
 
@@ -1535,7 +1545,7 @@ function App() {
       return
     }
 
-    await loadUsers()
+    await loadUsers(profile.email)
     await loadAuditLogs()
     setDeleteTargetUser(null)
     setDeleteConfirmationText('')
@@ -1735,7 +1745,7 @@ function App() {
       await loadInternalNotes()
       await loadPaymentTransactions()
       await loadNotifications()
-      await loadUsers()
+      await loadUsers(profile.email)
     }
 
     if (profile?.role === 'administrator') {
@@ -1752,7 +1762,7 @@ function App() {
       await loadInternalNotes()
       await loadPaymentTransactions()
       await loadNotifications()
-      await loadUsers()
+      await loadUsers(profile?.email ?? '')
     }
 
     if (role === 'administrator') {
