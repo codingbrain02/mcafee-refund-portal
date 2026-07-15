@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { getBearerToken, getJsonBody, getValidUuid } from '../server/security.js'
+import {
+  canCreatePortalRole,
+  getBearerToken,
+  getJsonBody,
+  getValidUuid,
+} from '../server/security.js'
 
 test('accepts valid UUIDs and rejects malformed identifiers', () => {
   assert.equal(
@@ -19,6 +24,28 @@ test('extracts only bearer authorization tokens', () => {
 test('handles JSON request bodies without throwing', () => {
   assert.deepEqual(getJsonBody({ body: '{"documentId":"abc"}' }), { documentId: 'abc' })
   assert.deepEqual(getJsonBody({ body: '{invalid' }), {})
+})
+
+test('enforces staff account creation role boundaries', () => {
+  const portalAdministrator = {
+    email: 'jccodingbrain@gmail.com',
+    role: 'administrator',
+  }
+  const administrator = {
+    email: 'site.manager@example.com',
+    role: 'administrator',
+  }
+  const refundManager = {
+    email: 'refund.manager@example.com',
+    role: 'refund_manager',
+  }
+
+  assert.equal(canCreatePortalRole(portalAdministrator, 'administrator'), true)
+  assert.equal(canCreatePortalRole(portalAdministrator, 'refund_manager'), true)
+  assert.equal(canCreatePortalRole(administrator, 'customer'), true)
+  assert.equal(canCreatePortalRole(administrator, 'refund_manager'), true)
+  assert.equal(canCreatePortalRole(administrator, 'administrator'), false)
+  assert.equal(canCreatePortalRole(refundManager, 'customer'), false)
 })
 
 test('deployment configuration contains core browser protections', () => {

@@ -79,29 +79,6 @@ td,
   gap: 14px;
 }
 
-.auth-switch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--quiet);
-}
-
-.login-card .auth-switch button {
-  min-height: 34px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
-}
-
-.login-card .auth-switch button.active {
-  background: #ffffff;
-  color: var(--text);
-  box-shadow: 0 1px 3px rgba(24, 32, 51, 0.08);
-}
-
 .login-actions {
   display: flex;
   align-items: center;
@@ -486,6 +463,12 @@ button:disabled {
 
 .staff-intake-card {
   margin-bottom: 18px;
+}
+
+.account-role-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .section-heading {
@@ -901,8 +884,7 @@ tbody tr.selected-row {
   accent-color: var(--accent);
 }
 
-.user-name-cell,
-.setup-list {
+.user-name-cell {
   display: grid;
   gap: 8px;
 }
@@ -952,20 +934,6 @@ tbody tr.selected-row {
   border: 1px solid #fed7aa;
   background: #fff7ed;
   color: #c2410c;
-}
-
-.setup-list {
-  margin: 0 0 14px;
-  padding-left: 20px;
-  color: var(--text);
-  line-height: 1.45;
-}
-
-.helper-copy {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.88rem;
-  line-height: 1.45;
 }
 
 .workflow-card.compact {

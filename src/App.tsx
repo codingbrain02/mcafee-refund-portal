@@ -16,7 +16,6 @@ import {
 import './App.css'
 
 type PortalView = 'customer' | 'manager' | 'admin' | 'bank'
-type AuthMode = 'sign-in' | 'sign-up'
 type NoticeKind = 'info' | 'success' | 'error'
 type RefundStatus =
   | 'submitted'
@@ -34,7 +33,7 @@ type Notice = {
   title?: string
 }
 
-type AuthDialog = 'verify-email' | 'confirm-sign-out' | null
+type AuthDialog = 'confirm-sign-out' | null
 
 type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
 type ReportFormat = 'csv' | 'pdf'
@@ -145,10 +144,13 @@ const viewLabels: Record<PortalView, string> = {
 function App() {
   const [view, setView] = useState<PortalView>('customer')
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [authMode, setAuthMode] = useState<AuthMode>('sign-in')
-  const [signupFullName, setSignupFullName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
+  const [newAccountFullName, setNewAccountFullName] = useState('')
+  const [newAccountEmail, setNewAccountEmail] = useState('')
+  const [newAccountPassword, setNewAccountPassword] = useState('')
+  const [newAccountRole, setNewAccountRole] = useState<UserRole>('customer')
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false)
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -832,47 +834,77 @@ function App() {
     setIsSessionRestoring(false)
   }
 
-  async function handleSignUp(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateUserAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!supabase) return
+    if (!supabase || !profile || profile.role !== 'administrator') return
 
-    const email = authEmail.trim().toLowerCase()
-    const fullName = signupFullName.trim()
+    const fullName = newAccountFullName.trim()
+    const email = newAccountEmail.trim().toLowerCase()
 
-    if (!fullName || !email || authPassword.length < 8) {
-      setNotice({ kind: 'error', message: 'Enter your name, email, and an 8-character password.' })
+    if (!fullName || !email || newAccountPassword.length < 8) {
+      showCustomerDialog('error', 'Enter a full name, valid email, and an 8-character temporary password.')
       return
     }
 
-    setIsAuthLoading(true)
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password: authPassword,
-      options: {
-        data: {
-          full_name: fullName,
+    if (newAccountRole === 'administrator' && !isHeadAdministrator(profile.email)) {
+      showCustomerDialog('error', 'Contact the portal administrator to create an Administrator account.')
+      return
+    }
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      showCustomerDialog('error', 'Your session expired. Sign in again to create an account.')
+      return
+    }
+
+    setIsCreatingAccount(true)
+
+    try {
+      const response = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
-      },
-    })
-    setIsAuthLoading(false)
+        body: JSON.stringify({
+          email,
+          fullName,
+          password: newAccountPassword,
+          role: newAccountRole,
+        }),
+      })
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string
+        message?: string
+      }
 
-    if (error) {
-      setNotice({ kind: 'error', message: error.message })
-      return
+      if (!response.ok) {
+        throw new Error(result.error || 'The account could not be created.')
+      }
+
+      setNewAccountFullName('')
+      setNewAccountEmail('')
+      setNewAccountPassword('')
+      setNewAccountRole('customer')
+      await loadUsers(profile.email)
+      await loadAuditLogs()
+      showCustomerDialog(
+        'success',
+        result.message ?? `A verification email was sent to ${email}.`,
+        'Account created',
+      )
+    } catch (error) {
+      showCustomerDialog(
+        'error',
+        error instanceof Error ? error.message : 'The account could not be created.',
+        'Account creation failed',
+      )
+    } finally {
+      setIsCreatingAccount(false)
     }
-
-    setSignupFullName('')
-    setAuthEmail('')
-    setAuthPassword('')
-    setAuthMode('sign-in')
-
-    if (data.session?.user.id) {
-      await supabase.auth.signOut()
-      setProfile(null)
-    }
-
-    setAuthDialog('verify-email')
-    setNotice({ kind: 'info', message: 'Use your authorized account to access the refund portal.' })
   }
 
   async function handlePasswordReset() {
@@ -1854,38 +1886,7 @@ function App() {
             <small>You will stay signed in on this browser.</small>
           </div>
         ) : !profile ? (
-          <form
-            className="login-card"
-            onSubmit={authMode === 'sign-up' ? handleSignUp : handleSignIn}
-          >
-            <div className="auth-switch" aria-label="Account action">
-              <button
-                className={authMode === 'sign-in' ? 'active' : ''}
-                onClick={() => setAuthMode('sign-in')}
-                type="button"
-              >
-                Sign in
-              </button>
-              <button
-                className={authMode === 'sign-up' ? 'active' : ''}
-                onClick={() => setAuthMode('sign-up')}
-                type="button"
-              >
-                Create account
-              </button>
-            </div>
-            {authMode === 'sign-up' && (
-              <label>
-                Full Name
-                <input
-                  autoComplete="name"
-                  onChange={(event) => setSignupFullName(event.target.value)}
-                  required
-                  type="text"
-                  value={signupFullName}
-                />
-              </label>
-            )}
+          <form className="login-card" onSubmit={handleSignIn}>
             <label>
               Email
               <input
@@ -1907,27 +1908,19 @@ function App() {
               />
             </label>
             <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
-              {isAuthLoading
-                ? authMode === 'sign-up'
-                  ? 'Creating...'
-                  : 'Signing in...'
-                : authMode === 'sign-up'
-                  ? 'Create customer account'
-                  : 'Sign in'}
+              {isAuthLoading ? 'Signing in...' : 'Sign in'}
             </button>
-            {authMode === 'sign-in' && (
-              <div className="login-actions">
-                <span>Need access help?</span>
-                <button
-                  className="reset-password-button"
-                  disabled={isResetLoading}
-                  onClick={handlePasswordReset}
-                  type="button"
-                >
-                  {isResetLoading ? 'Sending...' : 'Reset password'}
-                </button>
-              </div>
-            )}
+            <div className="login-actions">
+              <span>Need access help?</span>
+              <button
+                className="reset-password-button"
+                disabled={isResetLoading}
+                onClick={handlePasswordReset}
+                type="button"
+              >
+                {isResetLoading ? 'Sending...' : 'Reset password'}
+              </button>
+            </div>
           </form>
         ) : (
           <div className="account-summary">
@@ -2621,6 +2614,74 @@ function App() {
 
             <div className="admin-layout">
               <section className="admin-main-stack">
+                <form className="work-card form-grid account-create-form" onSubmit={handleCreateUserAccount}>
+                  <div className="section-heading">
+                    <p className="eyebrow">Account administration</p>
+                    <h2>Create user account</h2>
+                  </div>
+                  <label>
+                    Full Name
+                    <input
+                      autoComplete="off"
+                      maxLength={120}
+                      onChange={(event) => setNewAccountFullName(event.target.value)}
+                      placeholder="Account holder name"
+                      required
+                      value={newAccountFullName}
+                    />
+                  </label>
+                  <label>
+                    Email Address
+                    <input
+                      autoComplete="off"
+                      maxLength={254}
+                      onChange={(event) => setNewAccountEmail(event.target.value)}
+                      placeholder="name@example.com"
+                      required
+                      type="email"
+                      value={newAccountEmail}
+                    />
+                  </label>
+                  <label>
+                    Temporary Password
+                    <input
+                      autoComplete="new-password"
+                      maxLength={72}
+                      minLength={8}
+                      onChange={(event) => setNewAccountPassword(event.target.value)}
+                      placeholder="Minimum 8 characters"
+                      required
+                      type="password"
+                      value={newAccountPassword}
+                    />
+                  </label>
+                  <label>
+                    Account Role
+                    <select
+                      onChange={(event) => setNewAccountRole(event.target.value as UserRole)}
+                      value={newAccountRole}
+                    >
+                      <option value="customer">Customer</option>
+                      <option value="refund_manager">Refund manager</option>
+                      {isHeadAdministrator(profile?.email ?? '') && (
+                        <option value="administrator">Administrator</option>
+                      )}
+                    </select>
+                  </label>
+                  {!isHeadAdministrator(profile?.email ?? '') && (
+                    <p className="account-role-note full-span">
+                      Contact the portal administrator to create an Administrator account.
+                    </p>
+                  )}
+                  <button
+                    className="primary-action"
+                    disabled={!supabase || isCreatingAccount}
+                    type="submit"
+                  >
+                    {isCreatingAccount ? 'Creating account...' : 'Create account'}
+                  </button>
+                </form>
+
                 <section className="work-card">
                   <div className="section-heading row-heading">
                     <div>
@@ -2762,21 +2823,6 @@ function App() {
               </section>
 
               <aside className="admin-side-stack">
-                <section className="work-card">
-                  <div className="section-heading">
-                    <p className="eyebrow">Manager setup</p>
-                    <h2>Add a refund manager</h2>
-                  </div>
-                  <ol className="setup-list">
-                    <li>Create the person's account from the sign-up screen.</li>
-                    <li>Return here and find the account under User accounts.</li>
-                    <li>Change the role from Customer to Refund manager.</li>
-                  </ol>
-                  <p className="helper-copy">
-                    The head administrator account is locked as the absolute portal administrator.
-                  </p>
-                </section>
-
                 <section className="work-card">
                   <div className="section-heading row-heading">
                     <div>
@@ -3010,53 +3056,35 @@ function App() {
           <section
             aria-labelledby="auth-dialog-title"
             aria-modal="true"
-            className={`customer-dialog ${authDialog === 'confirm-sign-out' ? 'danger' : 'info'}`}
+            className="customer-dialog danger"
             role="dialog"
           >
-            {authDialog === 'verify-email' ? (
-              <>
-                <div>
-                  <p className="eyebrow">Account verification</p>
-                  <h2 id="auth-dialog-title">Check your email</h2>
-                </div>
-                <p>
-                  Your account has been created. Open the verification email and confirm your
-                  address before signing in to the refund portal.
-                </p>
-                <button onClick={() => setAuthDialog(null)} type="button">
-                  Back to sign in
-                </button>
-              </>
-            ) : (
-              <>
-                <div>
-                  <p className="eyebrow">Secure session</p>
-                  <h2 id="auth-dialog-title">Sign out of the portal?</h2>
-                </div>
-                <p>
-                  This will end your current session on this browser. Any unsaved form entries will
-                  be cleared.
-                </p>
-                <div className="modal-actions">
-                  <button
-                    className="secondary-button"
-                    disabled={isSigningOut}
-                    onClick={() => setAuthDialog(null)}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="danger-button"
-                    disabled={isSigningOut}
-                    onClick={() => void handleSignOut()}
-                    type="button"
-                  >
-                    {isSigningOut ? 'Signing out...' : 'Log out'}
-                  </button>
-                </div>
-              </>
-            )}
+            <div>
+              <p className="eyebrow">Secure session</p>
+              <h2 id="auth-dialog-title">Sign out of the portal?</h2>
+            </div>
+            <p>
+              This will end your current session on this browser. Any unsaved form entries will
+              be cleared.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                disabled={isSigningOut}
+                onClick={() => setAuthDialog(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                disabled={isSigningOut}
+                onClick={() => void handleSignOut()}
+                type="button"
+              >
+                {isSigningOut ? 'Signing out...' : 'Log out'}
+              </button>
+            </div>
           </section>
         </div>
       )}
@@ -3414,6 +3442,10 @@ function formatAuditEntry(event: AuditLogRow, usersById: Map<string, UserAccount
 
   if (event.action === 'user_role_updated') {
     detail = `${actor} changed ${target}'s role from ${formatAuditValue(from)} to ${formatAuditValue(to)}.`
+  } else if (event.action === 'user_account_created') {
+    detail = `${actor} created ${target} as ${formatAuditValue(
+      readMetadataString(metadata, 'targetRole'),
+    )}. Email verification is pending.`
   } else if (event.action === 'user_mfa_updated') {
     detail = `${actor} changed ${target}'s MFA requirement from ${formatAuditValue(from)} to ${formatAuditValue(to)}.`
   } else if (event.action === 'user_account_deleted') {

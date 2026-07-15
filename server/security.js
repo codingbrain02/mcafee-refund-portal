@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const headAdministratorEmail = 'jccodingbrain@gmail.com'
 
 export function getBearerToken(request) {
   const authorization = request.headers.authorization
@@ -17,6 +18,16 @@ export function getJsonBody(request) {
   } catch {
     return {}
   }
+}
+
+export function canCreatePortalRole(profile, targetRole) {
+  if (profile?.role !== 'administrator') return false
+  if (targetRole === 'customer' || targetRole === 'refund_manager') return true
+
+  return (
+    targetRole === 'administrator' &&
+    profile.email?.trim().toLowerCase() === headAdministratorEmail
+  )
 }
 
 export async function authenticatePortalUser(supabase, bearerToken) {
