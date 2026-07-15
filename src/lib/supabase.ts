@@ -68,7 +68,7 @@ export type RefundDocumentRow = {
   storage_path: string
   mime_type: string
   file_size_bytes: number
-  created_at: string
+  uploaded_at: string
 }
 
 export type InternalNoteRow = {

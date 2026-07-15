@@ -686,8 +686,8 @@ function App() {
 
     const { data, error } = await supabase
       .from('refund_documents')
-      .select('id, refund_request_id, document_type, storage_path, mime_type, file_size_bytes, created_at')
-      .order('created_at', { ascending: false })
+      .select('id, refund_request_id, document_type, storage_path, mime_type, file_size_bytes, uploaded_at')
+      .order('uploaded_at', { ascending: false })
       .limit(100)
 
     if (error) {

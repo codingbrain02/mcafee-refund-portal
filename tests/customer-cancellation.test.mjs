@@ -35,4 +35,6 @@ test('customer UI requires typed confirmation and calls the protected RPC', () =
   assert.match(app, /supabase\.rpc\('cancel_refund_request'/)
   assert.match(app, /\.from\('refund-documents'\)\s*\.remove\(documentPaths\)/)
   assert.match(app, /request\.status === 'submitted'/)
+  assert.match(app, /file_size_bytes, uploaded_at/)
+  assert.doesNotMatch(app, /file_size_bytes, created_at/)
 })
