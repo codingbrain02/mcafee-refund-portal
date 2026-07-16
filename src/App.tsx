@@ -3449,19 +3449,7 @@ function App() {
                   <span>Payment Operations</span>
                 </div>
               </div>
-              <div className="boa-connection-state">
-                <span aria-hidden="true" />
-                API not connected
-              </div>
             </header>
-
-            <div className="boa-notice" role="status">
-              <strong>Internal payment recording only</strong>
-              <p>
-                This portal is not connected to Bank of America. Staff may record and reconcile a
-                payment handled outside the portal, but no funds are transmitted from this screen.
-              </p>
-            </div>
 
             <div className="boa-layout">
               <section className="boa-main-stack">
@@ -3676,11 +3664,6 @@ function App() {
               </aside>
             </div>
 
-            <footer className="boa-disclaimer">
-              Bank of America is a third-party financial institution. This internal refund portal is
-              not a Bank of America website and does not currently connect to its services. Record
-              Settled only after staff confirm the external bank payment.
-            </footer>
           </section>
         )}
         <footer className="portal-footer">

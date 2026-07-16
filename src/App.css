@@ -783,7 +783,6 @@ td {
 }
 
 .boa-brand,
-.boa-connection-state,
 .boa-section-heading,
 .boa-action-bar,
 .boa-notification-list article {
@@ -835,37 +834,8 @@ td {
   margin-left: auto;
 }
 
-.boa-connection-state {
-  gap: 8px;
-  color: #8f1d2c;
-  font-size: 0.82rem;
-  font-weight: 750;
-}
-
-.boa-connection-state > span {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--boa-red);
-  box-shadow: 0 0 0 4px #fce8ec;
-}
-
-.boa-notice {
-  padding: 14px 18px;
-  border: 1px solid #f1c6ce;
-  border-left: 4px solid var(--boa-red);
-  border-radius: 5px;
-  background: #fff7f8;
-}
-
-.boa-notice strong {
-  color: #89182a;
-}
-
-.boa-notice p,
 .boa-action-bar p,
-.boa-checklist p,
-.boa-disclaimer {
+.boa-checklist p {
   margin: 4px 0 0;
   color: #5b687c;
   font-size: 0.84rem;
@@ -1179,12 +1149,6 @@ td {
 .boa-notification-list article > div span {
   color: #68768a;
   font-size: 0.74rem;
-}
-
-.boa-disclaimer {
-  margin: 0;
-  padding: 0 4px;
-  text-align: center;
 }
 
 .manager-product-panel select:disabled {
@@ -1979,10 +1943,6 @@ tbody tr.selected-row {
 
   .boa-header {
     gap: 14px;
-  }
-
-  .boa-connection-state {
-    align-self: flex-start;
   }
 
   .boa-refund-summary {
