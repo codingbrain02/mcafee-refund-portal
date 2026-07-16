@@ -51,34 +51,42 @@ test('enforces staff account creation role boundaries', () => {
 test('verified customers can submit requests while staff control refund amounts', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const migration = readFileSync(
-    new URL('../supabase/migrations/20260716110000_direct_customer_refund_requests.sql', import.meta.url),
+    new URL('../supabase/migrations/20260716120000_customer_full_refund_form.sql', import.meta.url),
     'utf8',
   )
 
   assert.match(app, /async function handleSignUp/)
   assert.match(app, /Create customer account/)
   assert.match(app, /emailRedirectTo: `\$\{window\.location\.origin\}\/login`/)
-  assert.match(app, /submit_customer_refund_request/)
+  assert.match(app, /submit_customer_refund_request_details/)
   assert.match(app, /verify_customer_refund_order/)
   assert.match(migration, /customer_user\.role <> 'customer'/)
   assert.match(migration, /customer_user\.email_confirmed_at is null/)
   assert.match(migration, /'Pending staff verification'/)
-  assert.match(migration, /p_refund_amount is null or p_refund_amount <= 0/)
+  assert.match(migration, /amount_requested,[\s\S]*customer_requested_amount/)
+  assert.match(migration, /null,[\s\S]*0,[\s\S]*trim\(p_refund_reason\)/)
+  assert.match(migration, /revoke execute on function public\.submit_customer_refund_request/)
   assert.match(migration, /refund-submit:/)
 })
 
-test('customer form does not collect government ID or an arbitrary refund amount', () => {
+test('customer form records a requested amount without controlling the verified payout', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const migration = readFileSync(
+    new URL('../supabase/migrations/20260716120000_customer_full_refund_form.sql', import.meta.url),
+    'utf8',
+  )
   const customerForm = app.slice(
     app.indexOf('className="work-card guided-refund-form"'),
     app.indexOf("{activeView === 'manager'"),
   )
 
   assert.doesNotMatch(customerForm, /Government ID/i)
-  assert.doesNotMatch(customerForm, /name="amountRequested"/)
-  assert.match(customerForm, /Pending staff verification/)
+  assert.match(customerForm, /Amount requested/)
+  assert.match(customerForm, /Subject to staff verification/)
   assert.match(customerForm, /Antivirus product/)
   assert.doesNotMatch(customerForm, /name="refundAmount"/)
+  assert.match(migration, /customer_requested_amount/)
+  assert.match(migration, /amount_requested,[\s\S]*customer_phone_submitted/)
 })
 
 test('deployment configuration contains core browser protections', () => {

@@ -176,10 +176,14 @@ try {
 
   const orderNumber = `ORDER-${stamp}`
   const { data: submittedRefund, error: submittedRefundError } = await customer.rpc(
-    'submit_customer_refund_request',
+    'submit_customer_refund_request_details',
     {
+      p_customer_phone: '+1 555 010 2600',
       p_order_number: orderNumber,
+      p_preferred_payment_method: 'Original payment method',
       p_product_name: 'McAfee',
+      p_purchase_date: new Date().toISOString().slice(0, 10),
+      p_requested_amount: 17.25,
       p_refund_reason: 'Automated production acceptance test',
     },
   )
@@ -189,20 +193,28 @@ try {
   assert.match(submission.reference_number, /^REF-\d{8}-[A-F0-9]{8}$/)
   requestId = submission.refund_request_id
 
-  const duplicateSubmission = await customer.rpc('submit_customer_refund_request', {
+  const duplicateSubmission = await customer.rpc('submit_customer_refund_request_details', {
+    p_customer_phone: '+1 555 010 2600',
     p_order_number: orderNumber,
+    p_preferred_payment_method: 'Original payment method',
     p_product_name: 'McAfee',
+    p_purchase_date: new Date().toISOString().slice(0, 10),
+    p_requested_amount: 17.25,
     p_refund_reason: 'Duplicate automated acceptance test',
   })
   assert.ok(duplicateSubmission.error, 'A duplicate customer order request should be rejected.')
 
   const { data: refund, error: refundError } = await customer
     .from('refund_requests')
-    .select('id,status,amount_requested,reference_number')
+    .select('id,status,amount_requested,customer_phone_submitted,customer_purchase_date,customer_requested_amount,customer_preferred_payment_method,reference_number')
     .eq('id', requestId)
     .single()
   if (refundError) throw refundError
   assert.equal(Number(refund.amount_requested), 0)
+  assert.equal(Number(refund.customer_requested_amount), 17.25)
+  assert.equal(refund.customer_phone_submitted, '+1 555 010 2600')
+  assert.equal(refund.customer_purchase_date, new Date().toISOString().slice(0, 10))
+  assert.equal(refund.customer_preferred_payment_method, 'Original payment method')
 
   const { data: customerRecord, error: customerError } = await customer
     .from('customers')
@@ -211,7 +223,7 @@ try {
     .single()
   if (customerError) throw customerError
   customerRecordId = customerRecord.id
-  console.log('PASS direct customer submission, pending amount, and duplicate protection')
+  console.log('PASS full customer submission, separate requested amount, and duplicate protection')
 
   const { data: customerUsers, error: customerUsersError } = await customer.from('users').select('id')
   if (customerUsersError) throw customerUsersError

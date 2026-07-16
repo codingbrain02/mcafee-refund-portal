@@ -16,9 +16,9 @@ Deleting an account removes associated operational records according to the data
 
 ## Refund operations
 
-1. The customer creates and verifies an account, then submits the order number, antivirus, reason, and optional documents.
+1. The customer creates and verifies an account, then completes the full refund form with contact, order, purchase, requested amount, preferred method, antivirus, reason, notes, and optional documents.
 2. Open Manager and select the Submitted request.
-3. In Order verification, record the verified purchase date, refundable amount, and refund method.
+3. In Order verification, check the prefilled customer-submitted values and record the authoritative purchase date, refundable amount, and refund method.
 4. Start review after verification unlocks the workflow button.
 5. Enter a note and request documents when necessary.
 6. Verify documents after reviewing the signed document links.

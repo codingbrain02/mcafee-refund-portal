@@ -11,8 +11,8 @@
 ## Data flow
 
 1. Supabase Auth restores the browser session.
-2. A verified customer submits an order number, antivirus product, reason, and optional documents through a security-definer function.
-3. PostgreSQL generates the reference while amount, purchase date, and refund method remain pending.
+2. A verified customer submits contact, order, purchase, requested amount, preferred method, antivirus, reason, and optional documents through a security-definer function.
+3. PostgreSQL generates the reference and stores the customer-submitted purchase, amount, and method separately while authoritative payout fields remain pending.
 4. A staff-only security-definer function records authoritative order details before review can begin.
 5. Refund actions write status history and immutable audit metadata.
 6. Database triggers queue email notifications.

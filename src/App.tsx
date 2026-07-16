@@ -190,10 +190,13 @@ function App() {
   const [refundDocuments, setRefundDocuments] = useState<RefundDocumentRow[]>([])
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [customerOrderLookup, setCustomerOrderLookup] = useState('')
-  const [customerAntivirus, setCustomerAntivirus] = useState('')
+  const [customerAntivirus, setCustomerAntivirus] = useState('McAfee')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [customerPurchaseDate, setCustomerPurchaseDate] = useState('')
+  const [customerRequestedAmount, setCustomerRequestedAmount] = useState('')
+  const [customerPreferredMethod, setCustomerPreferredMethod] = useState('')
   const [customerRefundReason, setCustomerRefundReason] = useState('')
   const [customerRefundDetails, setCustomerRefundDetails] = useState('')
-  const [customerRefundStep, setCustomerRefundStep] = useState(1)
   const [customerDocuments, setCustomerDocuments] = useState<File[]>([])
   const [mfaFactorId, setMfaFactorId] = useState('')
   const [mfaChallengeId, setMfaChallengeId] = useState('')
@@ -695,7 +698,7 @@ function App() {
     const { data, error } = await supabase
       .from('refund_requests')
       .select(
-        'id, reference_number, order_number, product_name, purchase_date, amount_requested, refund_reason, preferred_payment_method, status, assigned_to, created_at, customers(full_name, email, phone)',
+        'id, reference_number, order_number, product_name, purchase_date, amount_requested, customer_phone_submitted, customer_purchase_date, customer_requested_amount, customer_preferred_payment_method, refund_reason, preferred_payment_method, status, assigned_to, created_at, customers(full_name, email, phone)',
       )
       .order('created_at', { ascending: false })
       .limit(25)
@@ -1203,10 +1206,13 @@ function App() {
     setRefundDocuments([])
     setNotifications([])
     setCustomerOrderLookup('')
-    setCustomerAntivirus('')
+    setCustomerAntivirus('McAfee')
+    setCustomerPhone('')
+    setCustomerPurchaseDate('')
+    setCustomerRequestedAmount('')
+    setCustomerPreferredMethod('')
     setCustomerRefundReason('')
     setCustomerRefundDetails('')
-    setCustomerRefundStep(1)
     setCustomerDocuments([])
     setMfaFactorId('')
     setMfaChallengeId('')
@@ -1221,7 +1227,20 @@ function App() {
 
   async function handleRefundSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!supabase || !profile || !customerOrderLookup.trim() || !customerAntivirus) return
+    if (!supabase || !profile) return
+
+    if (
+      !customerOrderLookup.trim() ||
+      !customerAntivirus ||
+      !customerPhone.trim() ||
+      !customerPurchaseDate ||
+      Number(customerRequestedAmount) <= 0 ||
+      !customerPreferredMethod ||
+      !customerRefundReason
+    ) {
+      showCustomerDialog('error', 'Complete all required refund fields before submitting.')
+      return
+    }
 
     if (!customerRefundReason) {
       showCustomerDialog('error', 'Select a refund reason before submitting.')
@@ -1244,9 +1263,13 @@ function App() {
     }
 
     setIsSubmittingRefund(true)
-    const { data, error } = await supabase.rpc('submit_customer_refund_request', {
+    const { data, error } = await supabase.rpc('submit_customer_refund_request_details', {
+      p_customer_phone: customerPhone.trim(),
       p_order_number: customerOrderLookup.trim(),
+      p_preferred_payment_method: customerPreferredMethod,
       p_product_name: customerAntivirus,
+      p_purchase_date: customerPurchaseDate,
+      p_requested_amount: Number(customerRequestedAmount),
       p_refund_reason: customerRefundDetails.trim()
         ? `${customerRefundReason}: ${customerRefundDetails.trim()}`
         : customerRefundReason,
@@ -1289,9 +1312,12 @@ function App() {
 
     const notificationDispatched = await dispatchQueuedNotifications(result.refund_request_id)
     setIsSubmittingRefund(false)
-    setCustomerRefundStep(1)
     setCustomerOrderLookup('')
-    setCustomerAntivirus('')
+    setCustomerAntivirus('McAfee')
+    setCustomerPhone('')
+    setCustomerPurchaseDate('')
+    setCustomerRequestedAmount('')
+    setCustomerPreferredMethod('')
     setCustomerRefundReason('')
     setCustomerRefundDetails('')
     setCustomerDocuments([])
@@ -1303,12 +1329,6 @@ function App() {
         : `Refund request ${result.reference_number} was submitted. The confirmation email remains queued.`,
       'Refund request submitted',
     )
-  }
-
-  function handleCustomerOrderLookup() {
-    if (!customerOrderLookup.trim() || !customerAntivirus) return
-    setSelectedAntivirus(customerAntivirus)
-    setCustomerRefundStep(2)
   }
 
   function handleCustomerFiles(files: FileList | File[]) {
@@ -2398,222 +2418,200 @@ function App() {
               >
                 <div className="guided-form-heading">
                   <div>
-                    <p className="eyebrow">Start a refund</p>
-                    <h2>Request a refund</h2>
+                    <p className="eyebrow">Customer refund form</p>
+                    <h2>Submit refund request</h2>
                   </div>
                   <p>Submit your order details now. Staff will verify the refund amount during review.</p>
                 </div>
 
-                <ol className="form-progress" aria-label="Refund request progress">
-                  {['Identify order', 'Reason and documents', 'Review and submit'].map((label, index) => {
-                    const step = index + 1
-                    return (
-                      <li className={customerRefundStep === step ? 'active' : customerRefundStep > step ? 'complete' : ''} key={label}>
-                        <span>{step}</span>
-                        <strong>{label}</strong>
-                      </li>
-                    )
-                  })}
-                </ol>
-
-                {customerRefundStep === 1 && (
-                  <section className="guided-form-section">
-                    <div className="field-section-heading">
-                      <h3>Identify your order</h3>
-                      <p>Enter the order number and antivirus product shown on your purchase confirmation.</p>
+                <section className="guided-form-section customer-full-form-grid">
+                    <div className="field-section-heading full-span">
+                      <h3>Customer and order details</h3>
+                      <p>Fields marked as verified come from your signed-in account.</p>
                     </div>
-                    <div className="order-lookup-grid">
-                      <label>
-                        <span className="label-with-help">
-                          Order number
-                          <button
-                            aria-label="Where to find your order number"
-                            className="field-help"
-                            title="Find this number in your purchase confirmation or receipt."
-                            type="button"
-                          >
-                            ?
-                          </button>
-                        </span>
-                        <input
-                          autoComplete="off"
-                          onBlur={(event) => setCustomerOrderLookup(event.target.value.trim())}
-                          onChange={(event) => setCustomerOrderLookup(event.target.value)}
-                          placeholder="Enter your order number"
-                          value={customerOrderLookup}
-                        />
-                      </label>
-                      <label>
-                        Antivirus product
-                        <select
-                          aria-label="Antivirus product"
-                          onChange={(event) => setCustomerAntivirus(event.target.value)}
-                          value={customerAntivirus}
+                    <label>
+                      Customer full name
+                      <input readOnly value={profile?.full_name ?? ''} />
+                    </label>
+                    <label>
+                      Customer email
+                      <input readOnly type="email" value={profile?.email ?? ''} />
+                    </label>
+                    <label>
+                      Customer phone number
+                      <input
+                        autoComplete="tel"
+                        onChange={(event) => setCustomerPhone(event.target.value)}
+                        placeholder="Customer phone number"
+                        required
+                        type="tel"
+                        value={customerPhone}
+                      />
+                    </label>
+                    <label>
+                      Refund reference number
+                      <input placeholder="Generated automatically after submission" readOnly />
+                    </label>
+                    <label>
+                      <span className="label-with-help">
+                        Order number
+                        <button
+                          aria-label="Where to find your order number"
+                          className="field-help"
+                          title="Find this number in your purchase confirmation or receipt."
+                          type="button"
                         >
-                          <option disabled value="">Select the product on your order</option>
-                          {antivirusOptions.map((option) => (
-                            <option key={option.label} value={option.label}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          ?
+                        </button>
+                      </span>
+                      <input
+                        autoComplete="off"
+                        onBlur={(event) => setCustomerOrderLookup(event.target.value.trim())}
+                        onChange={(event) => setCustomerOrderLookup(event.target.value)}
+                        placeholder="Order number"
+                        required
+                        value={customerOrderLookup}
+                      />
+                    </label>
+                    <label>
+                      Purchase date
+                      <input
+                        max={new Date().toISOString().slice(0, 10)}
+                        onChange={(event) => setCustomerPurchaseDate(event.target.value)}
+                        required
+                        type="date"
+                        value={customerPurchaseDate}
+                      />
+                    </label>
+                    <label className="full-span">
+                      Antivirus product
+                      <select
+                        aria-label="Antivirus product"
+                        onChange={(event) => {
+                          setCustomerAntivirus(event.target.value)
+                          setSelectedAntivirus(event.target.value)
+                        }}
+                        required
+                        value={customerAntivirus}
+                      >
+                        {antivirusOptions.map((option) => (
+                          <option key={option.label} value={option.label}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="product-preview full-span">
+                      <img alt="" aria-hidden="true" src={getAntivirusOption(customerAntivirus).icon} />
+                      <div><span>Selected antivirus</span><strong>{customerAntivirus}</strong></div>
                     </div>
-                    <div className="verified-account-line">
-                      <span>Verified account</span>
-                      <strong>{profile?.email}</strong>
-                    </div>
-                    <div className="customer-safety-notice" role="note">
+                    <div className="customer-safety-notice full-span" role="note">
                       <span aria-hidden="true">i</span>
                       <p>
                         Staff will verify the order, purchase date, refundable amount, and payment method.
                         Never provide passwords, full card numbers, or bank login details.
                       </p>
                     </div>
-                    <button
-                      className="primary-action"
-                      disabled={!customerOrderLookup.trim() || !customerAntivirus}
-                      onClick={handleCustomerOrderLookup}
-                      title={
-                        !customerOrderLookup.trim() || !customerAntivirus
-                          ? 'Enter an order number and select its antivirus product to continue'
-                          : undefined
-                      }
-                      type="button"
-                    >
-                      Continue
-                    </button>
-                  </section>
-                )}
+                </section>
 
-                {customerRefundStep === 2 && (
-                  <section className="guided-form-section">
-                    <div className="field-section-heading">
-                      <h3>Reason and documents</h3>
-                      <p>Supporting documents are optional unless the review team requests them.</p>
-                    </div>
-                    <dl className="request-order-summary">
-                      <div><dt>Order number</dt><dd>{customerOrderLookup}</dd></div>
-                      <div><dt>Antivirus</dt><dd>{customerAntivirus}</dd></div>
-                      <div><dt>Refund amount</dt><dd>Pending staff verification</dd></div>
-                    </dl>
-                    <fieldset className="refund-reason-options">
-                      <legend>Reason for refund</legend>
-                      {[
-                        ['Duplicate charge', 'I was charged more than once for the same order.'],
-                        ['Service cancellation', 'I cancelled the service or subscription.'],
-                        ['Product did not work as expected', 'The product issue could not be resolved.'],
-                        ['Other', 'My reason is not listed above.'],
-                      ].map(([reason, description]) => (
-                        <label key={reason}>
-                          <input
-                            checked={customerRefundReason === reason}
-                            name="customerRefundReason"
-                            onChange={() => setCustomerRefundReason(reason)}
-                            type="radio"
-                            value={reason}
-                          />
-                          <span>
-                            <strong>{reason}</strong>
-                            <small>{description}</small>
-                          </span>
-                        </label>
+                <section className="guided-form-section customer-full-form-grid">
+                  <div className="field-section-heading full-span">
+                    <h3>Refund details</h3>
+                    <p>Enter the amount and method from your purchase. Staff will verify both before approval.</p>
+                  </div>
+                  <label>
+                    Reason for cancellation
+                    <select
+                      onChange={(event) => setCustomerRefundReason(event.target.value)}
+                      required
+                      value={customerRefundReason}
+                    >
+                      <option value="">Select a reason</option>
+                      <option>Duplicate charge</option>
+                      <option>Service cancellation</option>
+                      <option>Product did not work as expected</option>
+                      <option>Other</option>
+                    </select>
+                  </label>
+                  <label>
+                    Amount requested
+                    <input
+                      min="0.01"
+                      onChange={(event) => setCustomerRequestedAmount(event.target.value)}
+                      placeholder="0.00"
+                      required
+                      step="0.01"
+                      type="number"
+                      value={customerRequestedAmount}
+                    />
+                    <small className="field-support-text">Subject to staff verification.</small>
+                  </label>
+                  <label>
+                    Preferred refund method
+                    <select
+                      onChange={(event) => setCustomerPreferredMethod(event.target.value)}
+                      required
+                      value={customerPreferredMethod}
+                    >
+                      <option value="">Select a method</option>
+                      <option>Original payment method</option>
+                      <option>Manual bank transfer</option>
+                      <option>Store credit</option>
+                    </select>
+                  </label>
+                  <label
+                    className="file-drop-zone"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      handleCustomerFiles(event.dataTransfer.files)
+                    }}
+                  >
+                    <span className="file-drop-icon" aria-hidden="true">+</span>
+                    <strong>Upload documents</strong>
+                    <small>Drag files here or browse. PDF, JPG, or PNG, up to 10 MB each.</small>
+                    <input
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      aria-label="Upload supporting documents"
+                      multiple
+                      onChange={(event) => event.target.files && handleCustomerFiles(event.target.files)}
+                      type="file"
+                    />
+                  </label>
+                  {customerDocuments.length > 0 && (
+                    <div className="file-preview-list full-span">
+                      {customerDocuments.map((file) => (
+                        <CustomerFilePreview
+                          file={file}
+                          key={`${file.name}-${file.size}-${file.lastModified}`}
+                          onRemove={() => setCustomerDocuments((current) => current.filter((item) => item !== file))}
+                        />
                       ))}
-                    </fieldset>
-                    <label>
-                      Additional details <span className="optional-label">Optional</span>
-                      <textarea
-                        maxLength={500}
-                        onChange={(event) => setCustomerRefundDetails(event.target.value)}
-                        placeholder="Add information that may help the review team. Do not include payment credentials."
-                        rows={4}
-                        value={customerRefundDetails}
-                      />
-                      <small className="character-count">{customerRefundDetails.length}/500</small>
-                    </label>
-                    <label
-                      className="file-drop-zone"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault()
-                        handleCustomerFiles(event.dataTransfer.files)
-                      }}
-                    >
-                      <span className="file-drop-icon" aria-hidden="true">+</span>
-                      <strong>Add supporting documents</strong>
-                      <small>Drag files here or browse. PDF, JPG, or PNG, up to 10 MB each.</small>
-                      <input
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        aria-label="Upload supporting documents"
-                        multiple
-                        onChange={(event) => event.target.files && handleCustomerFiles(event.target.files)}
-                        type="file"
-                      />
-                    </label>
-                    {customerDocuments.length > 0 && (
-                      <div className="file-preview-list">
-                        {customerDocuments.map((file) => (
-                          <CustomerFilePreview
-                            file={file}
-                            key={`${file.name}-${file.size}-${file.lastModified}`}
-                            onRemove={() => setCustomerDocuments((current) => current.filter((item) => item !== file))}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    <div className="guided-form-actions">
-                      <button className="secondary-button" onClick={() => setCustomerRefundStep(1)} type="button">Back</button>
-                      <button
-                        className="primary-action"
-                        disabled={!customerRefundReason}
-                        onClick={() => setCustomerRefundStep(3)}
-                        title={!customerRefundReason ? 'Select a refund reason to continue' : undefined}
-                        type="button"
-                      >
-                        Review request
-                      </button>
                     </div>
-                  </section>
-                )}
-
-                {customerRefundStep === 3 && (
-                  <section className="guided-form-section">
-                    <div className="field-section-heading">
-                      <h3>Review and submit</h3>
-                      <p>Confirm your request. Staff will verify the order and refundable amount.</p>
-                    </div>
-                    <dl className="request-order-summary">
-                      <div><dt>Order number</dt><dd>{customerOrderLookup}</dd></div>
-                      <div><dt>Antivirus</dt><dd>{customerAntivirus}</dd></div>
-                      <div><dt>Refund amount</dt><dd>Pending staff verification</dd></div>
-                    </dl>
-                    <dl className="review-details">
-                      <div><dt>Reason</dt><dd>{customerRefundReason}</dd></div>
-                      <div><dt>Refund method</dt><dd>Pending staff verification</dd></div>
-                      <div><dt>Documents</dt><dd>{customerDocuments.length || 'None attached'}</dd></div>
-                    </dl>
-                    {customerRefundDetails.trim() && (
-                      <div className="review-note">
-                        <strong>Additional details</strong>
-                        <p>{customerRefundDetails.trim()}</p>
-                      </div>
-                    )}
-                    <label className="confirmation-check">
-                      <input required type="checkbox" />
-                      <span>I confirm that the order information is accurate and belongs to me.</span>
-                    </label>
-                    <div className="guided-form-actions">
-                      <button className="secondary-button" onClick={() => setCustomerRefundStep(2)} type="button">Back</button>
-                      <button
-                        className="primary-action"
-                        disabled={!supabase || isSubmittingRefund}
-                        type="submit"
-                      >
-                        {isSubmittingRefund ? 'Submitting...' : 'Submit refund request'}
-                      </button>
-                    </div>
-                  </section>
-                )}
+                  )}
+                  <label className="full-span">
+                    Intake notes <span className="optional-label">Optional</span>
+                    <textarea
+                      maxLength={500}
+                      onChange={(event) => setCustomerRefundDetails(event.target.value)}
+                      placeholder="Add information that may help the review team. Do not include payment credentials."
+                      rows={4}
+                      value={customerRefundDetails}
+                    />
+                    <small className="character-count">{customerRefundDetails.length}/500</small>
+                  </label>
+                  <label className="confirmation-check full-span">
+                    <input required type="checkbox" />
+                    <span>I confirm that these order details are accurate and belong to me.</span>
+                  </label>
+                  <button
+                    className="primary-action full-span"
+                    disabled={!supabase || isSubmittingRefund}
+                    type="submit"
+                  >
+                    {isSubmittingRefund ? 'Submitting...' : 'Submit refund request'}
+                  </button>
+                </section>
               </form>
             )}
 
@@ -2912,7 +2910,9 @@ function App() {
                           <td data-label="Amount">
                             {Number(request.amount_requested) > 0
                               ? `$${Number(request.amount_requested).toFixed(2)}`
-                              : 'Pending verification'}
+                              : Number(request.customer_requested_amount) > 0
+                                ? `$${Number(request.customer_requested_amount).toFixed(2)} requested`
+                                : 'Pending verification'}
                           </td>
                           <td data-label="Status">
                             <span className="status-pill">{formatStatus(request.status)}</span>
@@ -3064,15 +3064,32 @@ function App() {
                       </div>
                       <label>
                         Purchase date
-                        <input max={new Date().toISOString().slice(0, 10)} name="purchaseDate" required type="date" />
+                        <input
+                          defaultValue={selectedRequest.customer_purchase_date ?? ''}
+                          max={new Date().toISOString().slice(0, 10)}
+                          name="purchaseDate"
+                          required
+                          type="date"
+                        />
                       </label>
                       <label>
                         Verified refund amount
-                        <input min="0.01" name="refundAmount" required step="0.01" type="number" />
+                        <input
+                          defaultValue={selectedRequest.customer_requested_amount ?? undefined}
+                          min="0.01"
+                          name="refundAmount"
+                          required
+                          step="0.01"
+                          type="number"
+                        />
                       </label>
                       <label>
                         Refund method
-                        <select defaultValue="Original payment method" name="refundMethod" required>
+                        <select
+                          defaultValue={selectedRequest.customer_preferred_payment_method ?? 'Original payment method'}
+                          name="refundMethod"
+                          required
+                        >
                           <option>Original payment method</option>
                           <option>Store credit</option>
                           <option>Manual bank transfer</option>
@@ -3969,12 +3986,18 @@ function RequestSummaryCard({
           <dd>
             {Number(request.amount_requested) > 0
               ? `$${Number(request.amount_requested).toFixed(2)}`
-              : 'Pending verification'}
+              : Number(request.customer_requested_amount) > 0
+                ? `$${Number(request.customer_requested_amount).toFixed(2)} requested`
+                : 'Pending verification'}
           </dd>
         </div>
         <div>
           <dt>Method</dt>
-          <dd>{request.preferred_payment_method}</dd>
+          <dd>
+            {request.preferred_payment_method === 'Pending staff verification' && request.customer_preferred_payment_method
+              ? `${request.customer_preferred_payment_method} requested`
+              : request.preferred_payment_method}
+          </dd>
         </div>
         <div>
           <dt>Submitted</dt>

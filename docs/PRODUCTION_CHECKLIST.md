@@ -29,10 +29,10 @@ Items that depend on external accounts, approvals, or authorized banking credent
 
 ## Refund workflow
 
-- [ ] Customer can submit an order number and antivirus without a pre-created ledger record.
-- [ ] Customer cannot enter the purchase date, refund method, amount, or reference.
+- [ ] Customer can submit contact, order, purchase, requested amount, preferred method, antivirus, reason, notes, and documents without a pre-created ledger record.
+- [ ] Customer cannot create a reference or directly set the authoritative verified payout fields.
 - [ ] A duplicate request for the same customer and order number is rejected.
-- [ ] Staff can verify the purchase date, positive amount, and refund method.
+- [ ] Staff verification is prefilled from the customer's submitted values and can record the authoritative purchase date, positive amount, and refund method.
 - [ ] Start review remains disabled until staff verification is complete.
 - [ ] Submission rate limiting is enforced.
 - [ ] Customer can submit and cancel a Submitted request.

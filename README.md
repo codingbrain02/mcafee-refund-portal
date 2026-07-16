@@ -2,7 +2,7 @@
 
 A secure, role-based refund operations portal for verified customer orders, supporting-document review, ordered approvals, manual payment reconciliation, customer email notifications, reporting, and immutable audit history.
 
-The application is designed to operate without an order-system or banking API. Customers submit their order number, antivirus product, reason, and optional documents directly. Authorized staff verify the purchase date, refundable amount, and refund method before review can begin. The Bank of America-styled payment workspace records payments completed outside the portal; it does not transmit money or connect to Bank of America.
+The application is designed to operate without an order-system or banking API. Customers submit their contact, order, purchase, requested amount, preferred method, reason, and optional document details directly. Authorized staff must verify the authoritative purchase date, refundable amount, and refund method before review can begin. The Bank of America-styled payment workspace records payments completed outside the portal; it does not transmit money or connect to Bank of America.
 
 ## Production status
 
@@ -45,13 +45,13 @@ Authentication supports:
 
 A verified customer can:
 
-- Enter the order number and select the antivirus shown on the purchase confirmation.
+- Submit a phone number, order number, purchase date, antivirus product, requested amount, and preferred refund method.
 - Submit the request immediately without waiting for staff to create an order record.
-- See the amount and refund method as Pending verification until staff confirms them.
+- See the customer-requested amount and method marked as awaiting staff verification.
 - Select a refund reason.
 - Optionally attach PDF, JPG, or PNG documents up to 10 MB each.
 - Preview image attachments and remove files before submission.
-- Review the complete request before submission.
+- Add optional intake notes before submission.
 - Submit one refund request per order number.
 - Track Submitted, Under Review, Approved, and Refunded milestones with timestamps.
 - See an estimated resolution date.
@@ -62,8 +62,7 @@ A verified customer can:
 
 Customers cannot:
 
-- Enter or change the refundable amount.
-- Enter a refund amount, purchase date, or payout method.
+- Control the final verified refundable amount, purchase date, or payout method.
 - Create their own refund reference number.
 - Submit an order belonging to another email address.
 - Submit a second refund for the same order.
@@ -160,16 +159,16 @@ Portal Administrator protections:
 ## Direct customer-request workflow
 
 1. The customer creates an account, verifies the email, and signs in at `/login`.
-2. The customer enters the order number and selects the antivirus product.
-3. The customer selects a reason, adds optional documents, reviews, and submits.
+2. The customer completes the full refund form with contact, order, purchase, requested amount, preferred method, antivirus, and reason details.
+3. The customer adds optional documents and notes, confirms the information, and submits.
 4. PostgreSQL generates the refund reference and creates a Submitted request atomically.
-5. The amount and refund method remain Pending staff verification.
-6. A Refund Manager selects the request and records the verified purchase date, amount, and method.
+5. Customer-entered purchase, amount, and method values are stored separately as submitted claims.
+6. A Refund Manager selects the request, checks the submitted values, and records the authoritative purchase date, amount, and method.
 7. Start review remains disabled until those authoritative details are recorded.
 8. The request then follows the ordered review, document verification, approval, payment, and completion workflow.
 9. The customer may cancel and permanently delete the request while it remains Submitted.
 
-Submission controls include verified-email enforcement, one request per customer and order number, staff-only refund amounts, and a maximum of five submissions per account per hour.
+Submission controls include verified-email enforcement, one request per customer and order number, a separate staff-verified payout amount, and a maximum of five submissions per account per hour.
 
 ## Refund workflow
 

@@ -17,6 +17,10 @@ export type RefundRequestRow = {
   product_name: string
   purchase_date: string | null
   amount_requested: number
+  customer_phone_submitted: string | null
+  customer_purchase_date: string | null
+  customer_requested_amount: number | null
+  customer_preferred_payment_method: string | null
   refund_reason: string
   preferred_payment_method: string
   status: string
