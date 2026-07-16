@@ -28,11 +28,12 @@ The application is designed to operate without an order-system or banking API. A
 
 ### Dedicated login
 
-The `/login` route is used for all customer and staff sign-ins. Public account creation is not shown. Accounts are created by authorized administrators and must pass Supabase email verification before normal use.
+The `/login` route supports customer self-registration and all customer and staff sign-ins. Self-registration always creates a Customer account and requires Supabase email verification. Staff accounts and staff roles remain restricted to authorized administrators.
 
 Authentication supports:
 
 - Email and password sign-in
+- Customer self-registration with full name, email, and password
 - Persistent sessions across browser tabs
 - Email verification
 - Password recovery

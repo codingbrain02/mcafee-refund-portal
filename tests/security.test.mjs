@@ -48,16 +48,18 @@ test('enforces staff account creation role boundaries', () => {
   assert.equal(canCreatePortalRole(refundManager, 'customer'), false)
 })
 
-test('public portal is sign-in only and customer refunds use verified orders', () => {
+test('public registration creates customers while refunds still use verified orders', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const migration = readFileSync(
     new URL('../supabase/migrations/20260716090000_manual_order_ledger.sql', import.meta.url),
     'utf8',
   )
 
-  assert.doesNotMatch(app, /async function handleSignUp/)
-  assert.doesNotMatch(app, /Create customer account/)
+  assert.match(app, /async function handleSignUp/)
+  assert.match(app, /Create customer account/)
+  assert.match(app, /emailRedirectTo: `\$\{window\.location\.origin\}\/login`/)
   assert.match(app, /submit_eligible_order_refund/)
+  assert.match(migration, /customer_user\.role <> 'customer'/)
   assert.match(migration, /customer_user\.email_confirmed_at is null/)
   assert.match(migration, /order_record\.refundable_amount/)
   assert.match(migration, /refund_requests_eligible_order_unique/)

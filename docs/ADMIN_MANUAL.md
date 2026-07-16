@@ -6,7 +6,7 @@ Use a verified portal account. Sessions persist across tabs through Supabase Aut
 
 ## User accounts
 
-- Accounts created by authorized staff appear in User accounts and remain pending until the recipient verifies the email address.
+- Customer self-registrations and accounts created by authorized staff appear in User accounts and remain pending until the recipient verifies the email address.
 - Unverified accounts remain pending and are eligible for removal after the configured verification window.
 - The protected portal administrator cannot be deleted or demoted.
 - Use role controls only for authorized staff changes.

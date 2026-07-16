@@ -34,6 +34,7 @@ type Notice = {
   title?: string
 }
 
+type AuthMode = 'sign-in' | 'sign-up'
 type AuthDialog = 'confirm-sign-out' | null
 
 type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
@@ -146,6 +147,8 @@ function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname)
   const [view, setView] = useState<PortalView>('customer')
   const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [authMode, setAuthMode] = useState<AuthMode>('sign-in')
+  const [signupFullName, setSignupFullName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [newAccountFullName, setNewAccountFullName] = useState('')
@@ -910,6 +913,48 @@ function App() {
     setAuthPassword('')
     setIsAuthLoading(false)
     setIsSessionRestoring(false)
+  }
+
+  async function handleSignUp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase) return
+
+    const fullName = signupFullName.trim()
+    const email = authEmail.trim().toLowerCase()
+
+    if (!fullName || !email || authPassword.length < 8) {
+      setNotice({ kind: 'error', message: 'Enter your full name, email, and a password of at least 8 characters.' })
+      return
+    }
+
+    setIsAuthLoading(true)
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: authPassword,
+      options: {
+        data: { full_name: fullName },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
+    })
+    setIsAuthLoading(false)
+
+    if (error) {
+      setNotice({ kind: 'error', message: getCustomerFriendlyError(error.message) })
+      return
+    }
+
+    if (data.session) await supabase.auth.signOut()
+
+    setSignupFullName('')
+    setAuthEmail('')
+    setAuthPassword('')
+    setAuthMode('sign-in')
+    setNotice({ kind: 'info', message: 'Use your verified customer account to access the refund portal.' })
+    showCustomerDialog(
+      'success',
+      'Open the verification message sent to your email address. After verification, return here and sign in.',
+      'Check your email',
+    )
   }
 
   async function handleVerifySignInMfa(event: FormEvent<HTMLFormElement>) {
@@ -2205,7 +2250,14 @@ function App() {
             <small>You will stay signed in on this browser.</small>
           </div>
         ) : !profile ? (
-          <form className="login-card" onSubmit={mfaChallengeId ? handleVerifySignInMfa : handleSignIn}>
+          <form
+            className="login-card"
+            onSubmit={mfaChallengeId
+              ? handleVerifySignInMfa
+              : authMode === 'sign-up'
+                ? handleSignUp
+                : handleSignIn}
+          >
             {mfaChallengeId ? (
               <>
                 <div className="login-heading">
@@ -2233,11 +2285,45 @@ function App() {
               </>
             ) : (
               <>
-                <div className="login-heading">
-                  <p className="eyebrow">Verified access</p>
-                  <h1>Sign in to your refund portal</h1>
-                  <p>Use the verified account connected to your customer order or staff access.</p>
+                <div className="auth-switch" aria-label="Account action">
+                  <button
+                    className={authMode === 'sign-in' ? 'active' : ''}
+                    onClick={() => setAuthMode('sign-in')}
+                    type="button"
+                  >
+                    Sign in
+                  </button>
+                  <button
+                    className={authMode === 'sign-up' ? 'active' : ''}
+                    onClick={() => setAuthMode('sign-up')}
+                    type="button"
+                  >
+                    Create customer account
+                  </button>
                 </div>
+                <div className="login-heading">
+                  <p className="eyebrow">{authMode === 'sign-up' ? 'Customer registration' : 'Verified access'}</p>
+                  <h1>
+                    {authMode === 'sign-up' ? 'Create your customer account' : 'Sign in to your refund portal'}
+                  </h1>
+                  <p>
+                    {authMode === 'sign-up'
+                      ? 'Create an account using the email connected to your eligible order.'
+                      : 'Use the verified account connected to your customer order or staff access.'}
+                  </p>
+                </div>
+                {authMode === 'sign-up' && (
+                  <label>
+                    Full name
+                    <input
+                      autoComplete="name"
+                      onChange={(event) => setSignupFullName(event.target.value)}
+                      required
+                      type="text"
+                      value={signupFullName}
+                    />
+                  </label>
+                )}
                 <label>
                   Email address
                   <input
@@ -2251,7 +2337,8 @@ function App() {
                 <label>
                   Password
                   <input
-                    autoComplete="current-password"
+                    autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'}
+                    minLength={authMode === 'sign-up' ? 8 : undefined}
                     onChange={(event) => setAuthPassword(event.target.value)}
                     required
                     type="password"
@@ -2259,22 +2346,31 @@ function App() {
                   />
                 </label>
                 <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
-                  {isAuthLoading ? 'Signing in...' : 'Sign in'}
+                  {isAuthLoading
+                    ? authMode === 'sign-up'
+                      ? 'Creating account...'
+                      : 'Signing in...'
+                    : authMode === 'sign-up'
+                      ? 'Create customer account'
+                      : 'Sign in'}
                 </button>
-                <div className="login-actions">
-                  <span>Need access help?</span>
-                  <button
-                    className="reset-password-button"
-                    disabled={isResetLoading}
-                    onClick={handlePasswordReset}
-                    type="button"
-                  >
-                    {isResetLoading ? 'Sending...' : 'Reset password'}
-                  </button>
-                </div>
+                {authMode === 'sign-in' && (
+                  <div className="login-actions">
+                    <span>Need access help?</span>
+                    <button
+                      className="reset-password-button"
+                      disabled={isResetLoading}
+                      onClick={handlePasswordReset}
+                      type="button"
+                    >
+                      {isResetLoading ? 'Sending...' : 'Reset password'}
+                    </button>
+                  </div>
+                )}
                 <p className="login-support-copy">
-                  Customers receive access from an authorized order record. Contact support if your order
-                  is not connected to a verified account.
+                  {authMode === 'sign-up'
+                    ? 'Email verification is required. Creating an account does not create or change an order.'
+                    : 'Customers can create an account here, but refund access still requires a matching eligible order.'}
                 </p>
               </>
             )}
