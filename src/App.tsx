@@ -593,12 +593,6 @@ function App() {
   const canManageUserAccounts = isHeadAdministrator(profile?.email ?? '')
   const customerPanelRequests = profile?.role === 'administrator' ? searchedRequests : requests
 
-  const paymentEta = useMemo(() => {
-    const amount = Number(selectedPaymentRequest?.amount_requested) || 0
-    if (!amount) return 'Awaiting amount'
-    return amount > 1000 ? 'Manual bank review required' : '2 business days'
-  }, [selectedPaymentRequest?.amount_requested])
-
   async function loadProfile(userId: string | null) {
     if (!supabase || !userId) {
       setProfile(null)
@@ -2348,8 +2342,6 @@ function App() {
               </div>
             </div>
             <nav aria-label="Account and support">
-              <a href="#portal-help">Help</a>
-              <a href="#portal-contact">Contact</a>
               <button onClick={() => void handleOpenSecurityDialog()} type="button">
                 Security
               </button>
@@ -3621,24 +3613,6 @@ function App() {
               </section>
 
               <aside className="boa-side-stack">
-                <section className="work-card boa-readiness-card">
-                  <div className="section-heading">
-                    <p className="eyebrow">Integration readiness</p>
-                    <h2>Connection checklist</h2>
-                  </div>
-                  <ol className="boa-checklist">
-                    <li className="complete"><span>1</span><div><strong>Portal workflow</strong><p>Approved refunds are ready for payment preparation.</p></div></li>
-                    <li className="complete"><span>2</span><div><strong>Manual reconciliation</strong><p>Staff can record external payment references and settlement.</p></div></li>
-                    <li><span>3</span><div><strong>API approval</strong><p>Official access and written authorization are still required.</p></div></li>
-                    <li><span>4</span><div><strong>API activation</strong><p>Automated transmission requires sandbox acceptance testing.</p></div></li>
-                  </ol>
-                  <dl className="boa-details">
-                    <div><dt>Selected refund</dt><dd>{selectedPaymentRequest?.reference_number ?? 'None'}</dd></div>
-                    <div><dt>Estimated processing</dt><dd>{paymentEta}</dd></div>
-                    <div><dt>Processing mode</dt><dd>Manual record</dd></div>
-                  </dl>
-                </section>
-
                 <section className="work-card boa-notification-card">
                   <div className="section-heading">
                     <p className="eyebrow">Customer communication</p>
@@ -3666,16 +3640,6 @@ function App() {
 
           </section>
         )}
-        <footer className="portal-footer">
-          <div id="portal-help">
-            <strong>Help</strong>
-            <span>Use the order number from the purchase receipt. Staff can verify missing order records.</span>
-          </div>
-          <div id="portal-contact">
-            <strong>Contact</strong>
-            <span>Contact your authorized refund operations team or portal administrator for account assistance.</span>
-          </div>
-        </footer>
       </section>
 
       {securityDialogOpen && (
