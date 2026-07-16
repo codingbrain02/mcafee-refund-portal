@@ -100,6 +100,7 @@ let requestId = null
 let cancellationRequestId = null
 let cancellationStoragePath = null
 let customerRecordId = null
+let eligibleOrderId = null
 let realtimeChannel = null
 
 async function cleanup() {
@@ -117,6 +118,7 @@ async function cleanup() {
     await service.from('refund_requests').delete().eq('id', cancellationRequestId)
   }
   if (customerRecordId) await service.from('customers').delete().eq('id', customerRecordId)
+  if (eligibleOrderId) await service.from('eligible_orders').delete().eq('id', eligibleOrderId)
   if (createdUserIds.length) await service.from('audit_logs').delete().in('actor_id', createdUserIds)
 
   for (const userId of [...createdUserIds].reverse()) {
@@ -141,6 +143,15 @@ async function cleanup() {
       .eq('id', requestId)
     if (requestCheckError) throw requestCheckError
     assert.equal(remainingRequests.length, 0, 'Temporary UAT refund remains after cleanup.')
+  }
+
+  if (eligibleOrderId) {
+    const { data: remainingOrders, error: orderCheckError } = await service
+      .from('eligible_orders')
+      .select('id')
+      .eq('id', eligibleOrderId)
+    if (orderCheckError) throw orderCheckError
+    assert.equal(remainingOrders.length, 0, 'Temporary UAT eligible order remains after cleanup.')
   }
 }
 
@@ -173,39 +184,68 @@ try {
   await signIn(administrator, identities[2].email, password)
   console.log('PASS authentication and role sessions')
 
-  const { data: customerRecord, error: customerError } = await customer
-    .from('customers')
+  const orderNumber = `ORDER-${stamp}`
+  const { data: eligibleOrder, error: eligibleOrderError } = await manager
+    .from('eligible_orders')
     .insert({
-      full_name: identities[0].fullName,
-      email: identities[0].email,
-      phone: '+10000000000',
-      created_by: identities[0].id,
+      order_number: orderNumber,
+      customer_email: identities[0].email,
+      customer_full_name: identities[0].fullName,
+      customer_phone: '+10000000000',
+      product_name: 'McAfee',
+      purchase_date: new Date().toISOString().slice(0, 10),
+      refundable_amount: 17.25,
+      refund_method: 'Original payment method',
+      created_by: identities[1].id,
     })
     .select('id')
     .single()
-  if (customerError) throw customerError
-  customerRecordId = customerRecord.id
+  if (eligibleOrderError) throw eligibleOrderError
+  eligibleOrderId = eligibleOrder.id
 
-  const referenceNumber = `UAT-${stamp}`
+  const { data: visibleOrders, error: visibleOrdersError } = await customer
+    .from('eligible_orders')
+    .select('id,refundable_amount')
+    .eq('id', eligibleOrderId)
+  if (visibleOrdersError) throw visibleOrdersError
+  assert.equal(visibleOrders.length, 1)
+  assert.equal(Number(visibleOrders[0].refundable_amount), 17.25)
+
+  const { data: submittedRefund, error: submittedRefundError } = await customer.rpc(
+    'submit_eligible_order_refund',
+    {
+      p_order_id: eligibleOrderId,
+      p_refund_reason: 'Automated production acceptance test',
+    },
+  )
+  if (submittedRefundError) throw submittedRefundError
+  const submission = Array.isArray(submittedRefund) ? submittedRefund[0] : submittedRefund
+  assert.ok(submission?.refund_request_id)
+  assert.match(submission.reference_number, /^REF-\d{8}-[A-F0-9]{8}$/)
+  requestId = submission.refund_request_id
+
+  const duplicateSubmission = await customer.rpc('submit_eligible_order_refund', {
+    p_order_id: eligibleOrderId,
+    p_refund_reason: 'Duplicate automated acceptance test',
+  })
+  assert.ok(duplicateSubmission.error, 'A duplicate eligible-order refund should be rejected.')
+
   const { data: refund, error: refundError } = await customer
     .from('refund_requests')
-    .insert({
-      customer_id: customerRecordId,
-      reference_number: referenceNumber,
-      order_number: `ORDER-${stamp}`,
-      product_name: 'McAfee',
-      purchase_date: new Date().toISOString().slice(0, 10),
-      amount_requested: 1,
-      refund_reason: 'Automated production acceptance test',
-      preferred_payment_method: 'Original payment method',
-      created_by: identities[0].id,
-    })
-    .select('id,status')
+    .select('id,status,amount_requested,reference_number')
+    .eq('id', requestId)
     .single()
   if (refundError) throw refundError
-  requestId = refund.id
-  await addHistory(customer, requestId, identities[0].id, null, 'submitted')
-  console.log('PASS customer submission and own-record visibility')
+  assert.equal(Number(refund.amount_requested), 17.25)
+
+  const { data: customerRecord, error: customerError } = await customer
+    .from('customers')
+    .select('id')
+    .eq('created_by', identities[0].id)
+    .single()
+  if (customerError) throw customerError
+  customerRecordId = customerRecord.id
+  console.log('PASS verified eligible-order submission, locked amount, and duplicate protection')
 
   const { data: customerUsers, error: customerUsersError } = await customer.from('users').select('id')
   if (customerUsersError) throw customerUsersError

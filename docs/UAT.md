@@ -5,6 +5,10 @@ The production UAT harness validates the live Supabase authorization and workflo
 ## Coverage
 
 - Confirmed customer, refund manager, and administrator authentication
+- Staff creation of an eligible manual order
+- Customer-only visibility by verified order email
+- Server-locked refund amount and generated reference
+- Duplicate eligible-order submission rejection
 - Customer refund submission and own-record visibility
 - Customer denial from staff-only status and audit operations
 - Manager visibility of refund operations

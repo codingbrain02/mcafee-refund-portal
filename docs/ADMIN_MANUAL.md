@@ -6,7 +6,7 @@ Use a verified portal account. Sessions persist across tabs through Supabase Aut
 
 ## User accounts
 
-- New verified signups appear in User accounts.
+- Accounts created by authorized staff appear in User accounts and remain pending until the recipient verifies the email address.
 - Unverified accounts remain pending and are eligible for removal after the configured verification window.
 - The protected portal administrator cannot be deleted or demoted.
 - Use role controls only for authorized staff changes.
@@ -16,12 +16,15 @@ Deleting an account removes associated operational records according to the data
 
 ## Refund operations
 
-1. Open Manager and select a refund.
-2. Start review.
-3. Enter a note and request documents when necessary.
-4. Verify documents after reviewing the signed document links.
-5. Approve or reject. Rejection requires a reason.
-6. Approved refunds move to Bank for internal payment tracking.
+1. Add the customer's authoritative purchase to the Manual Order Ledger.
+2. Record the verified order number, email, product, purchase date, refundable amount, and refund method.
+3. Create a verified customer account when the customer does not already have one.
+4. Open Manager and select a submitted refund.
+5. Start review.
+6. Enter a note and request documents when necessary.
+7. Verify documents after reviewing the signed document links.
+8. Approve or reject. Rejection requires a reason.
+9. Approved refunds move to Bank for manual payment tracking.
 
 Workflow buttons lock after an action is recorded or when a later step makes an earlier action invalid.
 
@@ -41,4 +44,10 @@ Each export creates an audit event containing the format, active filters, record
 
 ## Banking limitation
 
-The Bank view is an internal workflow interface. Do not represent it as a Bank of America system and do not enter full bank account numbers. Only token/reference data and the last four account digits may be recorded. External payment submission remains disabled until an authorized API is integrated.
+The Bank view is an internal manual-reconciliation interface. Complete the actual payment through the organization's authorized external bank process, then record the reference and last four account digits. Mark Settled only after independent confirmation. The portal does not submit funds to Bank of America.
+
+## Role boundaries
+
+- Refund Managers maintain eligible orders, review requests, create reports, and reconcile payments. They cannot manage login accounts or roles.
+- Administrators perform manager work, create Customer and Refund Manager accounts, view customers, and inspect permitted audit events. They cannot change roles or delete accounts.
+- The Portal Administrator can create every role, change roles, and delete non-protected accounts. The protected head account cannot be viewed by ordinary staff, demoted, or deleted.

@@ -1,6 +1,7 @@
-import { type CSSProperties, type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type AuditLogRow,
+  type EligibleOrderRow,
   hasSupabaseConfig,
   type InternalNoteRow,
   type NotificationRow,
@@ -16,7 +17,6 @@ import {
 import './App.css'
 
 type PortalView = 'customer' | 'manager' | 'admin' | 'bank'
-type AuthMode = 'sign-in' | 'sign-up'
 type NoticeKind = 'info' | 'success' | 'error'
 type RefundStatus =
   | 'submitted'
@@ -34,7 +34,7 @@ type Notice = {
   title?: string
 }
 
-type AuthDialog = 'verify-email' | 'confirm-sign-out' | null
+type AuthDialog = 'confirm-sign-out' | null
 
 type ManagerWorkflowTarget = 'under_review' | 'documents_verified' | 'approved'
 type ReportFormat = 'csv' | 'pdf'
@@ -143,10 +143,9 @@ const viewLabels: Record<PortalView, string> = {
 }
 
 function App() {
+  const [currentPath, setCurrentPath] = useState(window.location.pathname)
   const [view, setView] = useState<PortalView>('customer')
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [authMode, setAuthMode] = useState<AuthMode>('sign-in')
-  const [signupFullName, setSignupFullName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [newAccountFullName, setNewAccountFullName] = useState('')
@@ -177,7 +176,6 @@ function App() {
   const [isResetLoading, setIsResetLoading] = useState(false)
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
   const [isSubmittingStaffRefund, setIsSubmittingStaffRefund] = useState(false)
-  const [refundAmount, setRefundAmount] = useState('')
   const [staffRefundAmount, setStaffRefundAmount] = useState('')
   const [selectedAntivirus, setSelectedAntivirus] = useState('McAfee')
   const [staffIntakeProduct, setStaffIntakeProduct] = useState('McAfee')
@@ -189,6 +187,25 @@ function App() {
   const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransactionRow[]>([])
   const [refundDocuments, setRefundDocuments] = useState<RefundDocumentRow[]>([])
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
+  const [eligibleOrders, setEligibleOrders] = useState<EligibleOrderRow[]>([])
+  const [selectedEligibleOrderId, setSelectedEligibleOrderId] = useState('')
+  const [customerOrderLookup, setCustomerOrderLookup] = useState('')
+  const [customerAntivirus, setCustomerAntivirus] = useState('')
+  const [customerRefundReason, setCustomerRefundReason] = useState('')
+  const [customerRefundDetails, setCustomerRefundDetails] = useState('')
+  const [customerRefundStep, setCustomerRefundStep] = useState(1)
+  const [customerDocuments, setCustomerDocuments] = useState<File[]>([])
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false)
+  const [mfaFactorId, setMfaFactorId] = useState('')
+  const [mfaChallengeId, setMfaChallengeId] = useState('')
+  const mfaChallengeIdRef = useRef('')
+  const [mfaCode, setMfaCode] = useState('')
+  const [securityDialogOpen, setSecurityDialogOpen] = useState(false)
+  const [mfaEnrollmentId, setMfaEnrollmentId] = useState('')
+  const [mfaEnrollmentQr, setMfaEnrollmentQr] = useState('')
+  const [mfaEnrollmentSecret, setMfaEnrollmentSecret] = useState('')
+  const [mfaEnrollmentCode, setMfaEnrollmentCode] = useState('')
+  const [hasVerifiedMfa, setHasVerifiedMfa] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [reportStatusFilter, setReportStatusFilter] = useState('all')
   const [reportProductFilter, setReportProductFilter] = useState('all')
@@ -204,6 +221,19 @@ function App() {
 
   const allowedViews = useMemo(() => getAllowedViews(profile?.role), [profile])
   const activeView = allowedViews.includes(view) ? view : allowedViews[0]
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(window.location.pathname)
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (!['/', '/login'].includes(currentPath) || isPasswordRecovery) return
+    const nextPath = profile ? '/' : '/login'
+    if (currentPath === nextPath) return
+    window.history.replaceState({}, '', nextPath)
+  }, [currentPath, isPasswordRecovery, profile])
 
   useEffect(() => {
     const client = supabase
@@ -269,6 +299,7 @@ function App() {
       void loadRefundRequests()
       void loadStatusHistory()
       void loadRefundDocuments()
+      void loadEligibleOrders()
     }
   }, [profile])
 
@@ -311,6 +342,7 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_logs' }, queueRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'eligible_orders' }, queueRealtimeRefresh)
       .subscribe()
 
     return () => {
@@ -390,6 +422,11 @@ function App() {
     [requests, selectedRequestId],
   )
 
+  const selectedEligibleOrder = useMemo(
+    () => eligibleOrders.find((order) => order.id === selectedEligibleOrderId) ?? null,
+    [eligibleOrders, selectedEligibleOrderId],
+  )
+
   const activeAntivirus = useMemo(() => {
     const productName =
       activeView === 'customer'
@@ -406,7 +443,7 @@ function App() {
   const portalTheme = useMemo(
     () =>
       ({
-        '--accent': activeAntivirus.accent,
+        '--accent': '#075b68',
         '--status': activeAntivirus.status,
         '--status-bg': activeAntivirus.statusBg,
       }) as CSSProperties,
@@ -550,10 +587,10 @@ function App() {
   const customerPanelRequests = profile?.role === 'administrator' ? searchedRequests : requests
 
   const paymentEta = useMemo(() => {
-    const amount = Number(selectedPaymentRequest?.amount_requested ?? refundAmount) || 0
+    const amount = Number(selectedPaymentRequest?.amount_requested) || 0
     if (!amount) return 'Awaiting amount'
     return amount > 1000 ? 'Manual bank review required' : '2 business days'
-  }, [refundAmount, selectedPaymentRequest?.amount_requested])
+  }, [selectedPaymentRequest?.amount_requested])
 
   async function loadProfile(userId: string | null) {
     if (!supabase || !userId) {
@@ -565,7 +602,28 @@ function App() {
       setAuditLogs([])
       setPaymentTransactions([])
       setNotifications([])
+      setEligibleOrders([])
       setSelectedRequestId('')
+      return
+    }
+
+    const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (assurance?.nextLevel === 'aal2' && assurance.currentLevel !== 'aal2') {
+      const { data: factors } = await supabase.auth.mfa.listFactors()
+      const factor = factors?.totp.find((candidate) => candidate.status === 'verified')
+      if (factor && !mfaChallengeIdRef.current) {
+        const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+          factorId: factor.id,
+        })
+        if (challengeError || !challenge?.id) {
+          setNotice({ kind: 'error', message: 'Two-factor verification could not be started.' })
+          return
+        }
+        setMfaFactorId(factor.id)
+        setMfaChallengeId(challenge.id)
+        mfaChallengeIdRef.current = challenge.id
+      }
+      setProfile(null)
       return
     }
 
@@ -612,7 +670,7 @@ function App() {
   }
 
   async function loadInitialPortalData(profileToLoad: UserProfile) {
-    await Promise.all([loadRefundRequests(), loadStatusHistory(), loadRefundDocuments()])
+    await Promise.all([loadRefundRequests(), loadStatusHistory(), loadRefundDocuments(), loadEligibleOrders()])
 
     if (profileToLoad.role === 'administrator' || profileToLoad.role === 'refund_manager') {
       await dispatchQueuedNotifications()
@@ -785,6 +843,25 @@ function App() {
     setNotifications((data ?? []) as NotificationRow[])
   }
 
+  async function loadEligibleOrders() {
+    if (!supabase) return
+
+    const { data, error } = await supabase
+      .from('eligible_orders')
+      .select(
+        'id, order_number, customer_email, customer_full_name, customer_phone, product_name, purchase_date, refundable_amount, refund_method, status, created_by, created_at, updated_at',
+      )
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      setNotice({ kind: 'error', message: getCustomerFriendlyError(error.message) })
+      return
+    }
+
+    setEligibleOrders((data ?? []) as EligibleOrderRow[])
+  }
+
   async function dispatchQueuedNotifications(refundRequestId?: string) {
     if (!supabase) return false
 
@@ -828,56 +905,46 @@ function App() {
       return
     }
 
-    if (data.user?.id) {
-      await loadProfile(data.user.id)
-    }
+    if (data.user?.id) await loadProfile(data.user.id)
 
     setAuthPassword('')
     setIsAuthLoading(false)
     setIsSessionRestoring(false)
   }
 
-  async function handleSignUp(event: FormEvent<HTMLFormElement>) {
+  async function handleVerifySignInMfa(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!supabase) return
-
-    const email = authEmail.trim().toLowerCase()
-    const fullName = signupFullName.trim()
-
-    if (!fullName || !email || authPassword.length < 8) {
-      setNotice({ kind: 'error', message: 'Enter your name, email, and an 8-character password.' })
-      return
-    }
+    if (!supabase || !mfaFactorId || !mfaChallengeId || mfaCode.length !== 6) return
 
     setIsAuthLoading(true)
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password: authPassword,
-      options: {
-        data: {
-          full_name: fullName,
-        },
-      },
+    const { error } = await supabase.auth.mfa.verify({
+      factorId: mfaFactorId,
+      challengeId: mfaChallengeId,
+      code: mfaCode,
     })
-    setIsAuthLoading(false)
 
     if (error) {
-      setNotice({ kind: 'error', message: error.message })
+      setIsAuthLoading(false)
+      setNotice({ kind: 'error', message: 'The authenticator code was not accepted.' })
       return
     }
 
-    setSignupFullName('')
-    setAuthEmail('')
-    setAuthPassword('')
-    setAuthMode('sign-in')
+    const { data: userData } = await supabase.auth.getUser()
+    setMfaCode('')
+    setMfaFactorId('')
+    setMfaChallengeId('')
+    mfaChallengeIdRef.current = ''
+    if (userData.user?.id) await loadProfile(userData.user.id)
+    setIsAuthLoading(false)
+  }
 
-    if (data.session?.user.id) {
-      await supabase.auth.signOut()
-      setProfile(null)
-    }
-
-    setAuthDialog('verify-email')
-    setNotice({ kind: 'info', message: 'Use your authorized account to access the refund portal.' })
+  async function handleCancelMfaSignIn() {
+    if (supabase) await supabase.auth.signOut()
+    setMfaCode('')
+    setMfaFactorId('')
+    setMfaChallengeId('')
+    mfaChallengeIdRef.current = ''
+    setNotice({ kind: 'info', message: 'Sign in to access the refund portal.' })
   }
 
   async function handleCreateUserAccount(event: FormEvent<HTMLFormElement>) {
@@ -1022,6 +1089,81 @@ function App() {
     setNotice({ kind: 'info', message: 'Sign in to access the refund portal.' })
   }
 
+  async function handleOpenSecurityDialog() {
+    if (!supabase) return
+    const { data } = await supabase.auth.mfa.listFactors()
+    setHasVerifiedMfa(Boolean(data?.totp.some((factor) => factor.status === 'verified')))
+    setMfaEnrollmentId('')
+    setMfaEnrollmentQr('')
+    setMfaEnrollmentSecret('')
+    setMfaEnrollmentCode('')
+    setSecurityDialogOpen(true)
+  }
+
+  async function handleBeginMfaEnrollment() {
+    if (!supabase) return
+    const { data, error } = await supabase.auth.mfa.enroll({
+      factorType: 'totp',
+      friendlyName: 'Refund Portal Authenticator',
+    })
+
+    if (error || !data?.id || !data.totp) {
+      showCustomerDialog('error', 'Two-factor setup could not be started.')
+      return
+    }
+
+    setMfaEnrollmentId(data.id)
+    setMfaEnrollmentQr(data.totp.qr_code)
+    setMfaEnrollmentSecret(data.totp.secret)
+  }
+
+  async function handleVerifyMfaEnrollment() {
+    if (!supabase || !mfaEnrollmentId || mfaEnrollmentCode.length !== 6) return
+    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+      factorId: mfaEnrollmentId,
+    })
+
+    if (challengeError || !challenge?.id) {
+      showCustomerDialog('error', 'The authenticator verification could not be started.')
+      return
+    }
+
+    const { error } = await supabase.auth.mfa.verify({
+      factorId: mfaEnrollmentId,
+      challengeId: challenge.id,
+      code: mfaEnrollmentCode,
+    })
+
+    if (error) {
+      showCustomerDialog('error', 'The authenticator code was not accepted.')
+      return
+    }
+
+    setHasVerifiedMfa(true)
+    setMfaEnrollmentId('')
+    setMfaEnrollmentQr('')
+    setMfaEnrollmentSecret('')
+    setMfaEnrollmentCode('')
+    await logAudit('user_mfa_enabled', 'user', profile?.id ?? null, {})
+  }
+
+  async function handleDisableMfa() {
+    if (!supabase) return
+    const { data } = await supabase.auth.mfa.listFactors()
+    const verifiedFactors = data?.totp.filter((factor) => factor.status === 'verified') ?? []
+
+    for (const factor of verifiedFactors) {
+      const { error } = await supabase.auth.mfa.unenroll({ factorId: factor.id })
+      if (error) {
+        showCustomerDialog('error', 'Two-factor authentication could not be disabled.')
+        return
+      }
+    }
+
+    setHasVerifiedMfa(false)
+    await logAudit('user_mfa_disabled', 'user', profile?.id ?? null, {})
+  }
+
   async function handleSignOut() {
     if (!supabase) return
     setIsSigningOut(true)
@@ -1035,6 +1177,18 @@ function App() {
     setPaymentTransactions([])
     setRefundDocuments([])
     setNotifications([])
+    setEligibleOrders([])
+    setSelectedEligibleOrderId('')
+    setCustomerOrderLookup('')
+    setCustomerAntivirus('')
+    setCustomerRefundReason('')
+    setCustomerRefundDetails('')
+    setCustomerRefundStep(1)
+    setCustomerDocuments([])
+    setMfaFactorId('')
+    setMfaChallengeId('')
+    setMfaCode('')
+    mfaChallengeIdRef.current = ''
     setSelectedRequestId('')
     setView('customer')
     setAuthDialog(null)
@@ -1044,122 +1198,48 @@ function App() {
 
   async function handleRefundSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!supabase) return
+    if (!supabase || !profile || !selectedEligibleOrder) return
 
-    const form = new FormData(event.currentTarget)
-    const files = form.getAll('documents').filter((file): file is File => file instanceof File)
-    const fullName = String(form.get('fullName') ?? '').trim()
-    const email = String(form.get('email') ?? '').trim()
-    const phone = String(form.get('phone') ?? '').trim()
-    const referenceNumber = String(form.get('referenceNumber') ?? '').trim()
-    const orderNumber = String(form.get('orderNumber') ?? '').trim()
-    const purchaseDate = String(form.get('purchaseDate') ?? '')
-    const refundReason = String(form.get('refundReason') ?? '')
-    const preferredPaymentMethod = String(form.get('preferredPaymentMethod') ?? '')
-    const productName = String(form.get('productName') ?? selectedAntivirus)
-    const amount = Number(form.get('amountRequested'))
+    if (!customerRefundReason) {
+      showCustomerDialog('error', 'Select a refund reason before submitting.')
+      return
+    }
 
-    if (!profile) {
+    const invalidFile = customerDocuments.find(
+      (file) =>
+        !['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) ||
+        file.size === 0 ||
+        file.size > 10 * 1024 * 1024,
+    )
+
+    if (invalidFile) {
       showCustomerDialog(
         'error',
-        'Please sign in or create a customer account before submitting a refund request.',
+        `${invalidFile.name} must be a non-empty PDF, JPG, or PNG file below 10 MB.`,
       )
       return
     }
 
-    if (!fullName || !email || !referenceNumber || !orderNumber || !amount) {
-      showCustomerDialog('error', 'Please complete the required refund details before submitting.')
-      return
-    }
-
     setIsSubmittingRefund(true)
-
-    const { data: userData } = await supabase.auth.getUser()
-    const createdBy = userData.user?.id ?? null
-
-    const { data: existingCustomers, error: existingCustomerError } = await supabase
-      .from('customers')
-      .select('id')
-      .eq('created_by', createdBy)
-      .eq('email', email)
-      .order('created_at', { ascending: true })
-      .limit(1)
-
-    if (existingCustomerError) {
-      setIsSubmittingRefund(false)
-      showCustomerDialog('error', getCustomerFriendlyError(existingCustomerError.message))
-      return
-    }
-
-    let customerId = existingCustomers?.[0]?.id
-
-    if (!customerId) {
-      const { data: customer, error: customerError } = await supabase
-        .from('customers')
-        .insert({
-          full_name: fullName,
-          email,
-          phone,
-          created_by: createdBy,
-        })
-        .select('id')
-        .single()
-
-      if (customerError) {
-        setIsSubmittingRefund(false)
-        showCustomerDialog('error', getCustomerFriendlyError(customerError.message))
-        return
-      }
-
-      customerId = customer.id
-    }
-
-    const { data: refund, error: refundError } = await supabase
-      .from('refund_requests')
-      .insert({
-        customer_id: customerId,
-        reference_number: referenceNumber,
-        order_number: orderNumber,
-        product_name: productName,
-        purchase_date: purchaseDate || null,
-        amount_requested: amount,
-        refund_reason: refundReason,
-        preferred_payment_method: preferredPaymentMethod,
-        created_by: createdBy,
-      })
-      .select('id')
-      .single()
-
-    if (refundError) {
-      setIsSubmittingRefund(false)
-      showCustomerDialog('error', getCustomerFriendlyError(refundError.message))
-      return
-    }
-
-    await supabase.from('refund_status_history').insert({
-      refund_request_id: refund.id,
-      from_status: null,
-      to_status: 'submitted',
-      employee_id: createdBy,
-      internal_notes: 'Customer submitted refund request.',
+    const { data, error } = await supabase.rpc('submit_eligible_order_refund', {
+      p_order_id: selectedEligibleOrder.id,
+      p_refund_reason: customerRefundDetails.trim()
+        ? `${customerRefundReason}: ${customerRefundDetails.trim()}`
+        : customerRefundReason,
     })
+    const result = Array.isArray(data) ? data[0] : data
 
-    const notificationDispatched = await dispatchQueuedNotifications(refund.id)
+    if (error || !result?.refund_request_id) {
+      setIsSubmittingRefund(false)
+      showCustomerDialog(
+        'error',
+        getCustomerFriendlyError(error?.message ?? 'The refund request could not be submitted.'),
+      )
+      return
+    }
 
-    for (const file of files) {
-      if (file.size === 0) continue
-
-      if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
-        showCustomerDialog('error', `${file.name} must be a PDF, JPG, or PNG file.`)
-        continue
-      }
-
-      if (file.size > 10 * 1024 * 1024) {
-        showCustomerDialog('error', `${file.name} is larger than the 10 MB upload limit.`)
-        continue
-      }
-
-      const storagePath = `${refund.id}/${crypto.randomUUID()}-${file.name}`
+    for (const file of customerDocuments) {
+      const storagePath = `${result.refund_request_id}/${crypto.randomUUID()}-${file.name}`
       const { error: uploadError } = await supabase.storage
         .from('refund-documents')
         .upload(storagePath, file)
@@ -1170,12 +1250,12 @@ function App() {
       }
 
       const { error: documentError } = await supabase.from('refund_documents').insert({
-        refund_request_id: refund.id,
+        refund_request_id: result.refund_request_id,
         document_type: file.name,
         storage_path: storagePath,
         mime_type: file.type,
         file_size_bytes: file.size,
-        uploaded_by: createdBy,
+        uploaded_by: profile.id,
       })
 
       if (documentError) {
@@ -1183,18 +1263,201 @@ function App() {
       }
     }
 
+    const notificationDispatched = await dispatchQueuedNotifications(result.refund_request_id)
     setIsSubmittingRefund(false)
-    event.currentTarget.reset()
-    setRefundAmount('')
+    setCustomerRefundStep(1)
+    setCustomerOrderLookup('')
+    setCustomerAntivirus('')
+    setSelectedEligibleOrderId('')
+    setCustomerRefundReason('')
+    setCustomerRefundDetails('')
+    setCustomerDocuments([])
+    await refreshOperations()
     showCustomerDialog(
       notificationDispatched ? 'success' : 'info',
       notificationDispatched
-        ? `Refund request ${referenceNumber} was submitted. A confirmation email is on its way.`
-        : `Refund request ${referenceNumber} was submitted. The confirmation email remains queued.`,
+        ? `Refund request ${result.reference_number} was submitted. A confirmation email is on its way.`
+        : `Refund request ${result.reference_number} was submitted. The confirmation email remains queued.`,
+      'Refund request submitted',
     )
-    await logAudit('refund_submitted', 'refund_request', refund.id, { referenceNumber })
-    await loadRefundRequests()
-    await loadStatusHistory()
+  }
+
+  function handleCustomerOrderLookup() {
+    const lookup = customerOrderLookup.trim().toLowerCase()
+    const order = eligibleOrders.find((candidate) => candidate.order_number.toLowerCase() === lookup)
+
+    if (!order) {
+      showCustomerDialog(
+        'error',
+        'No order matching this number and your verified email was found. Check the order number or contact support.',
+        'Order not found',
+      )
+      return
+    }
+
+    if (order.product_name.toLowerCase() !== customerAntivirus.toLowerCase()) {
+      showCustomerDialog(
+        'error',
+        'The selected antivirus does not match this order. Check your purchase confirmation and try again.',
+        'Product does not match',
+      )
+      return
+    }
+
+    if (order.status !== 'eligible') {
+      showCustomerDialog(
+        'info',
+        `Order ${order.order_number} is currently ${formatStatus(order.status)} and cannot start another refund.`,
+        'Order unavailable',
+      )
+      return
+    }
+
+    setSelectedEligibleOrderId(order.id)
+    setSelectedAntivirus(order.product_name)
+    setCustomerRefundStep(2)
+  }
+
+  function handleCustomerFiles(files: FileList | File[]) {
+    const nextFiles = Array.from(files)
+    const validFiles = nextFiles.filter(
+      (file) =>
+        ['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) &&
+        file.size > 0 &&
+        file.size <= 10 * 1024 * 1024,
+    )
+
+    if (validFiles.length !== nextFiles.length) {
+      showCustomerDialog('error', 'Only non-empty PDF, JPG, and PNG files below 10 MB can be attached.')
+    }
+
+    setCustomerDocuments((current) => {
+      const combined = [...current, ...validFiles]
+      return combined.filter(
+        (file, index) =>
+          combined.findIndex(
+            (candidate) =>
+              candidate.name === file.name &&
+              candidate.size === file.size &&
+              candidate.lastModified === file.lastModified,
+          ) === index,
+      )
+    })
+  }
+
+  async function handleEligibleOrderSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase || !profile || !['administrator', 'refund_manager'].includes(profile.role)) return
+
+    const form = new FormData(event.currentTarget)
+    const orderNumber = String(form.get('orderNumber') ?? '').trim()
+    const customerEmail = String(form.get('customerEmail') ?? '').trim().toLowerCase()
+    const customerFullName = String(form.get('customerFullName') ?? '').trim()
+    const customerPhone = String(form.get('customerPhone') ?? '').trim()
+    const productName = String(form.get('productName') ?? '').trim()
+    const purchaseDate = String(form.get('purchaseDate') ?? '')
+    const refundableAmount = Number(form.get('refundableAmount'))
+    const refundMethod = String(form.get('refundMethod') ?? '').trim()
+
+    if (
+      !orderNumber ||
+      !customerEmail ||
+      !customerFullName ||
+      !productName ||
+      !purchaseDate ||
+      !refundMethod ||
+      refundableAmount <= 0
+    ) {
+      showCustomerDialog('error', 'Complete all required order fields with a valid refundable amount.')
+      return
+    }
+
+    setIsCreatingOrder(true)
+    const { error } = await supabase.from('eligible_orders').insert({
+      order_number: orderNumber,
+      customer_email: customerEmail,
+      customer_full_name: customerFullName,
+      customer_phone: customerPhone || null,
+      product_name: productName,
+      purchase_date: purchaseDate,
+      refundable_amount: refundableAmount,
+      refund_method: refundMethod,
+      created_by: profile.id,
+    })
+    setIsCreatingOrder(false)
+
+    if (error) {
+      showCustomerDialog('error', getCustomerFriendlyError(error.message), 'Order could not be saved')
+      return
+    }
+
+    event.currentTarget.reset()
+    await loadEligibleOrders()
+    await logAudit('eligible_order_created', 'eligible_order', null, {
+      customerEmail,
+      orderNumber,
+      productName,
+      refundableAmount,
+    })
+    showCustomerDialog(
+      'success',
+      `Order ${orderNumber} is now available to the verified customer account for ${customerEmail}.`,
+      'Eligible order saved',
+    )
+  }
+
+  async function handleUpdateEligibleOrderStatus(order: EligibleOrderRow, status: EligibleOrderRow['status']) {
+    if (!supabase || !profile || !['administrator', 'refund_manager'].includes(profile.role)) return
+
+    const { error } = await supabase
+      .from('eligible_orders')
+      .update({ status })
+      .eq('id', order.id)
+
+    if (error) {
+      showCustomerDialog('error', getCustomerFriendlyError(error.message))
+      return
+    }
+
+    await logAudit('eligible_order_status_updated', 'eligible_order', order.id, {
+      from: order.status,
+      orderNumber: order.order_number,
+      to: status,
+    })
+    await loadEligibleOrders()
+  }
+
+  async function handleDownloadReceipt(request: RefundRequestRow) {
+    const [{ jsPDF }] = await Promise.all([import('jspdf')])
+    const document = new jsPDF({ format: 'a4', unit: 'pt' })
+    document.setFont('helvetica', 'bold')
+    document.setFontSize(20)
+    document.text('Refund Request Receipt', 44, 54)
+    document.setFontSize(10)
+    document.setTextColor(75, 85, 99)
+    document.text(`Generated ${formatDateTime(new Date().toISOString())}`, 44, 74)
+    document.setTextColor(24, 32, 51)
+    document.setFont('helvetica', 'normal')
+    const rows = [
+      ['Reference', request.reference_number],
+      ['Order', request.order_number],
+      ['Product', request.product_name],
+      ['Customer', request.customers?.full_name ?? 'Customer'],
+      ['Amount', `$${Number(request.amount_requested).toFixed(2)}`],
+      ['Status', formatStatus(request.status)],
+      ['Submitted', formatDateTime(request.created_at)],
+    ]
+    rows.forEach(([label, value], index) => {
+      const y = 112 + index * 30
+      document.setFont('helvetica', 'bold')
+      document.text(label, 44, y)
+      document.setFont('helvetica', 'normal')
+      document.text(String(value), 180, y)
+    })
+    document.setFontSize(9)
+    document.setTextColor(75, 85, 99)
+    document.text('This receipt confirms submission only. It is not proof that funds were credited.', 44, 350)
+    document.save(`refund-receipt-${request.reference_number}.pdf`)
   }
 
   async function handleStaffRefundSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1660,7 +1923,7 @@ function App() {
     const beneficiaryHash = await createBeneficiaryHash(beneficiary)
     const { error } = await supabase.from('payment_transactions').insert({
       refund_request_id: selectedPaymentRequest.id,
-      provider: 'authorized_bank_api',
+      provider: 'manual_bank_record',
       transaction_reference: reference,
       beneficiary_hash: beneficiaryHash,
       beneficiary_last4: beneficiaryLast4,
@@ -1677,7 +1940,7 @@ function App() {
     await changeRequestStatus(
       selectedPaymentRequest,
       'payment_processing',
-      `Payment request ${reference} submitted to authorized banking API.`,
+      `Internal payment record ${reference} created. No bank API transmission occurred.`,
     )
     setBeneficiaryName('')
     setBeneficiaryLast4('')
@@ -1818,6 +2081,7 @@ function App() {
     await loadRefundRequests()
     await loadStatusHistory()
     await loadRefundDocuments()
+    await loadEligibleOrders()
 
     if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
       await loadInternalNotes()
@@ -1835,6 +2099,7 @@ function App() {
     await loadRefundRequests()
     await loadStatusHistory()
     await loadRefundDocuments()
+    await loadEligibleOrders()
 
     if (role === 'administrator' || role === 'refund_manager') {
       await loadInternalNotes()
@@ -1870,9 +2135,17 @@ function App() {
     })
   }
 
+  if (!['/', '/login'].includes(currentPath)) {
+    return <NotFoundPage onReturn={() => {
+      const nextPath = profile ? '/' : '/login'
+      window.history.pushState({}, '', nextPath)
+      setCurrentPath(nextPath)
+    }} />
+  }
+
   return (
-    <main className="app-shell" style={portalTheme}>
-      <section className="login-panel" aria-label="Secure employee login">
+    <main className={`app-shell ${profile ? 'portal-mode' : 'auth-mode'}`} style={portalTheme}>
+      <section className="login-panel" aria-label="Secure portal login">
         <div className="brand-lockup">
           <img
             alt={activeAntivirus.label}
@@ -1883,7 +2156,7 @@ function App() {
           />
           <div>
             <strong>{activeAntivirus.label} Refund Processing Portal</strong>
-            <small>For authorized customer refund operations</small>
+            <small>Access verified orders and refund operations</small>
           </div>
         </div>
 
@@ -1915,7 +2188,7 @@ function App() {
               {isResetLoading ? 'Updating...' : 'Update password'}
             </button>
             <div className="login-actions">
-              <span>Return to employee login</span>
+              <span>Return to portal login</span>
               <button
                 className="reset-password-button"
                 onClick={handleCancelPasswordRecovery}
@@ -1932,79 +2205,78 @@ function App() {
             <small>You will stay signed in on this browser.</small>
           </div>
         ) : !profile ? (
-          <form
-            className="login-card"
-            onSubmit={authMode === 'sign-up' ? handleSignUp : handleSignIn}
-          >
-            <div className="auth-switch" aria-label="Account action">
-              <button
-                className={authMode === 'sign-in' ? 'active' : ''}
-                onClick={() => setAuthMode('sign-in')}
-                type="button"
-              >
-                Sign in
-              </button>
-              <button
-                className={authMode === 'sign-up' ? 'active' : ''}
-                onClick={() => setAuthMode('sign-up')}
-                type="button"
-              >
-                Create customer account
-              </button>
-            </div>
-            {authMode === 'sign-up' && (
-              <label>
-                Full Name
-                <input
-                  autoComplete="name"
-                  onChange={(event) => setSignupFullName(event.target.value)}
-                  required
-                  type="text"
-                  value={signupFullName}
-                />
-              </label>
-            )}
-            <label>
-              Email
-              <input
-                autoComplete="username"
-                onChange={(event) => setAuthEmail(event.target.value)}
-                required
-                type="email"
-                value={authEmail}
-              />
-            </label>
-            <label>
-              Password
-              <input
-                autoComplete="current-password"
-                onChange={(event) => setAuthPassword(event.target.value)}
-                required
-                type="password"
-                value={authPassword}
-              />
-            </label>
-            <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
-              {isAuthLoading
-                ? authMode === 'sign-up'
-                  ? 'Creating...'
-                  : 'Signing in...'
-                : authMode === 'sign-up'
-                  ? 'Create customer account'
-                  : 'Sign in'}
-            </button>
-            {authMode === 'sign-in' && (
-              <div className="login-actions">
-                <span>Need access help?</span>
-                <button
-                  className="reset-password-button"
-                  disabled={isResetLoading}
-                  onClick={handlePasswordReset}
-                  type="button"
-                >
-                  {isResetLoading ? 'Sending...' : 'Reset password'}
+          <form className="login-card" onSubmit={mfaChallengeId ? handleVerifySignInMfa : handleSignIn}>
+            {mfaChallengeId ? (
+              <>
+                <div className="login-heading">
+                  <p className="eyebrow">Two-factor verification</p>
+                  <h1>Enter your authenticator code</h1>
+                  <p>Open your authenticator app and enter the current six-digit code.</p>
+                </div>
+                <label>
+                  Authentication code
+                  <input
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    required
+                    value={mfaCode}
+                  />
+                </label>
+                <button disabled={isAuthLoading || mfaCode.length !== 6} type="submit">
+                  {isAuthLoading ? 'Verifying...' : 'Verify and continue'}
                 </button>
-              </div>
+                <button className="secondary-button" onClick={() => void handleCancelMfaSignIn()} type="button">
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="login-heading">
+                  <p className="eyebrow">Verified access</p>
+                  <h1>Sign in to your refund portal</h1>
+                  <p>Use the verified account connected to your customer order or staff access.</p>
+                </div>
+                <label>
+                  Email address
+                  <input
+                    autoComplete="username"
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    required
+                    type="email"
+                    value={authEmail}
+                  />
+                </label>
+                <label>
+                  Password
+                  <input
+                    autoComplete="current-password"
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    required
+                    type="password"
+                    value={authPassword}
+                  />
+                </label>
+                <button disabled={!hasSupabaseConfig || isAuthLoading || isResetLoading} type="submit">
+                  {isAuthLoading ? 'Signing in...' : 'Sign in'}
+                </button>
+                <div className="login-actions">
+                  <span>Need access help?</span>
+                  <button
+                    className="reset-password-button"
+                    disabled={isResetLoading}
+                    onClick={handlePasswordReset}
+                    type="button"
+                  >
+                    {isResetLoading ? 'Sending...' : 'Reset password'}
+                  </button>
+                </div>
+                <p className="login-support-copy">
+                  Customers receive access from an authorized order record. Contact support if your order
+                  is not connected to a verified account.
+                </p>
+              </>
             )}
           </form>
         ) : (
@@ -2032,9 +2304,35 @@ function App() {
 
       <section className="portal-panel">
         <header className="portal-header">
-          <div>
-            <p className="eyebrow">Secure refund operations</p>
-            <h1>Refund Management Portal</h1>
+          <div className="portal-topbar">
+            <div className="portal-topbar-brand">
+              <img alt="" aria-hidden="true" src={activeAntivirus.icon} />
+              <div>
+                <strong>Refund Management Portal</strong>
+                <span>{profile?.full_name}</span>
+              </div>
+            </div>
+            <nav aria-label="Account and support">
+              <a href="#portal-help">Help</a>
+              <a href="#portal-contact">Contact</a>
+              <button onClick={() => void handleOpenSecurityDialog()} type="button">
+                Security
+              </button>
+              <button onClick={() => setAuthDialog('confirm-sign-out')} type="button">
+                Sign out
+              </button>
+            </nav>
+          </div>
+          <div className="portal-title-row">
+            <div>
+              <p className="eyebrow">Refund operations</p>
+              <h1>{activeView === 'customer' && profile?.role === 'customer' ? 'Your refunds' : 'Operations workspace'}</h1>
+            </div>
+            <p>
+              {profile?.role === 'customer'
+                ? 'Find an eligible order, submit a request, and follow every status update.'
+                : 'Review customer requests, maintain eligible orders, and record payment outcomes.'}
+            </p>
           </div>
         </header>
 
@@ -2063,7 +2361,7 @@ function App() {
         </nav>
 
         {activeView === 'customer' && (
-          <section className="content-grid">
+          <section className={`content-grid ${profile?.role === 'customer' ? 'customer-refund-layout' : ''}`}>
             {profile?.role === 'administrator' ? (
               <section className="work-card customer-operations-card">
                 <div className="section-heading row-heading">
@@ -2098,129 +2396,220 @@ function App() {
               </section>
             ) : (
               <form
-                className="work-card form-grid"
-                key={profile?.id ?? 'guest-refund-form'}
+                className="work-card guided-refund-form"
+                key={profile?.id}
                 onSubmit={handleRefundSubmit}
               >
-                <div className="section-heading">
-                  <p className="eyebrow">Customer refund form</p>
-                  <h2>Submit request</h2>
-                </div>
-                {!profile && (
-                  <p className="notice info full-span">
-                    Create an account or sign in to submit and track refund requests.
-                  </p>
-                )}
-                <label>
-                  Full Name
-                  <input
-                    autoComplete="name"
-                    defaultValue={profile?.full_name ?? ''}
-                    name="fullName"
-                    placeholder="Customer full name"
-                    required
-                  />
-                </label>
-                <label>
-                  Email Address
-                  <input
-                    autoComplete="email"
-                    defaultValue={profile?.email ?? ''}
-                    name="email"
-                    placeholder="customer@example.com"
-                    required
-                    type="email"
-                  />
-                </label>
-                <label>
-                  Phone Number
-                  <input autoComplete="tel" name="phone" placeholder="Customer phone number" type="tel" />
-                </label>
-                <label>
-                  Refund Reference Number
-                  <input name="referenceNumber" placeholder="Refund reference" required />
-                </label>
-                <label>
-                  Order Number
-                  <input name="orderNumber" placeholder="Order number" required />
-                </label>
-                <label>
-                  Purchase Date
-                  <input name="purchaseDate" type="date" />
-                </label>
-                <label className="full-span">
-                  Antivirus Product
-                  <select
-                    name="productName"
-                    onChange={(event) => setSelectedAntivirus(event.target.value)}
-                    required
-                    value={selectedAntivirus}
-                  >
-                    {antivirusOptions.map((option) => (
-                      <option key={option.label} value={option.label}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="product-preview full-span">
-                  <img alt={activeAntivirus.label} src={activeAntivirus.icon} />
+                <div className="guided-form-heading">
                   <div>
-                    <span>Selected antivirus</span>
-                    <strong>{activeAntivirus.label}</strong>
+                    <p className="eyebrow">Start a refund</p>
+                    <h2>Submit a verified order</h2>
                   </div>
+                  <p>Initial review typically begins within 10-15 minutes after a verified submission.</p>
                 </div>
-                <label>
-                  Reason for Cancellation
-                  <select defaultValue="" name="refundReason" required>
-                    <option disabled value="">
-                      Select a reason
-                    </option>
-                    <option>Duplicate charge</option>
-                    <option>Service cancellation</option>
-                    <option>Product return</option>
-                    <option>Other</option>
-                  </select>
-                </label>
-                <label>
-                  Amount Requested
-                  <input
-                    min="0"
-                    name="amountRequested"
-                    onChange={(event) => setRefundAmount(event.target.value)}
-                    required
-                    step="0.01"
-                    type="number"
-                    value={refundAmount}
-                  />
-                </label>
-                <label>
-                  Preferred Refund Method
-                  <select defaultValue="" name="preferredPaymentMethod" required>
-                    <option disabled value="">
-                      Select a method
-                    </option>
-                    <option>Original payment method</option>
-                    <option>Bank transfer</option>
-                    <option>Store credit</option>
-                  </select>
-                </label>
-                <label>
-                  Upload Documents
-                  <input accept=".pdf,.jpg,.jpeg,.png" multiple name="documents" type="file" />
-                </label>
-                <div className="document-checklist">
-                  <span>Government ID</span>
-                  <span>Purchase Receipt</span>
-                  <span>Cancellation Proof</span>
-                </div>
-                <button
-                  className="primary-action"
-                  disabled={!supabase || !profile || isSubmittingRefund}
-                  type="submit"
-                >
-                  {isSubmittingRefund ? 'Submitting...' : profile ? 'Submit refund request' : 'Sign in to submit'}
-                </button>
+
+                <ol className="form-progress" aria-label="Refund request progress">
+                  {['Identify order', 'Reason and documents', 'Review and submit'].map((label, index) => {
+                    const step = index + 1
+                    return (
+                      <li className={customerRefundStep === step ? 'active' : customerRefundStep > step ? 'complete' : ''} key={label}>
+                        <span>{step}</span>
+                        <strong>{label}</strong>
+                      </li>
+                    )
+                  })}
+                </ol>
+
+                {customerRefundStep === 1 && (
+                  <section className="guided-form-section">
+                    <div className="field-section-heading">
+                      <h3>Identify your order</h3>
+                      <p>Your verified account email must match the email recorded for the order.</p>
+                    </div>
+                    <div className="order-lookup-grid">
+                      <label>
+                        <span className="label-with-help">
+                          Order number
+                          <button
+                            aria-label="Where to find your order number"
+                            className="field-help"
+                            title="Find this number in your purchase confirmation or receipt."
+                            type="button"
+                          >
+                            ?
+                          </button>
+                        </span>
+                        <input
+                          autoComplete="off"
+                          onBlur={(event) => setCustomerOrderLookup(event.target.value.trim())}
+                          onChange={(event) => setCustomerOrderLookup(event.target.value)}
+                          placeholder="Enter your order number"
+                          value={customerOrderLookup}
+                        />
+                      </label>
+                      <label>
+                        Antivirus product
+                        <select
+                          aria-label="Antivirus product"
+                          onChange={(event) => setCustomerAntivirus(event.target.value)}
+                          value={customerAntivirus}
+                        >
+                          <option disabled value="">Select the product on your order</option>
+                          {antivirusOptions.map((option) => (
+                            <option key={option.label} value={option.label}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="verified-account-line">
+                      <span>Verified account</span>
+                      <strong>{profile?.email}</strong>
+                    </div>
+                    <div className="customer-safety-notice" role="note">
+                      <span aria-hidden="true">i</span>
+                      <p>
+                        We match this request to a recorded order. Never provide passwords, full card
+                        numbers, or bank login details.
+                      </p>
+                    </div>
+                    <button
+                      className="primary-action"
+                      disabled={!customerOrderLookup.trim() || !customerAntivirus}
+                      onClick={handleCustomerOrderLookup}
+                      title={
+                        !customerOrderLookup.trim() || !customerAntivirus
+                          ? 'Enter an order number and select its antivirus product to continue'
+                          : undefined
+                      }
+                      type="button"
+                    >
+                      Find my order
+                    </button>
+                  </section>
+                )}
+
+                {customerRefundStep === 2 && selectedEligibleOrder && (
+                  <section className="guided-form-section">
+                    <div className="field-section-heading">
+                      <h3>Reason and documents</h3>
+                      <p>Supporting documents are optional unless the review team requests them.</p>
+                    </div>
+                    <OrderSummary order={selectedEligibleOrder} />
+                    <fieldset className="refund-reason-options">
+                      <legend>Reason for refund</legend>
+                      {[
+                        ['Duplicate charge', 'I was charged more than once for the same order.'],
+                        ['Service cancellation', 'I cancelled the service or subscription.'],
+                        ['Product did not work as expected', 'The product issue could not be resolved.'],
+                        ['Other', 'My reason is not listed above.'],
+                      ].map(([reason, description]) => (
+                        <label key={reason}>
+                          <input
+                            checked={customerRefundReason === reason}
+                            name="customerRefundReason"
+                            onChange={() => setCustomerRefundReason(reason)}
+                            type="radio"
+                            value={reason}
+                          />
+                          <span>
+                            <strong>{reason}</strong>
+                            <small>{description}</small>
+                          </span>
+                        </label>
+                      ))}
+                    </fieldset>
+                    <label>
+                      Additional details <span className="optional-label">Optional</span>
+                      <textarea
+                        maxLength={500}
+                        onChange={(event) => setCustomerRefundDetails(event.target.value)}
+                        placeholder="Add information that may help the review team. Do not include payment credentials."
+                        rows={4}
+                        value={customerRefundDetails}
+                      />
+                      <small className="character-count">{customerRefundDetails.length}/500</small>
+                    </label>
+                    <label
+                      className="file-drop-zone"
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        handleCustomerFiles(event.dataTransfer.files)
+                      }}
+                    >
+                      <span className="file-drop-icon" aria-hidden="true">+</span>
+                      <strong>Add supporting documents</strong>
+                      <small>Drag files here or browse. PDF, JPG, or PNG, up to 10 MB each.</small>
+                      <input
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        aria-label="Upload supporting documents"
+                        multiple
+                        onChange={(event) => event.target.files && handleCustomerFiles(event.target.files)}
+                        type="file"
+                      />
+                    </label>
+                    {customerDocuments.length > 0 && (
+                      <div className="file-preview-list">
+                        {customerDocuments.map((file) => (
+                          <CustomerFilePreview
+                            file={file}
+                            key={`${file.name}-${file.size}-${file.lastModified}`}
+                            onRemove={() => setCustomerDocuments((current) => current.filter((item) => item !== file))}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <div className="guided-form-actions">
+                      <button className="secondary-button" onClick={() => setCustomerRefundStep(1)} type="button">Back</button>
+                      <button
+                        className="primary-action"
+                        disabled={!customerRefundReason}
+                        onClick={() => setCustomerRefundStep(3)}
+                        title={!customerRefundReason ? 'Select a refund reason to continue' : undefined}
+                        type="button"
+                      >
+                        Review request
+                      </button>
+                    </div>
+                  </section>
+                )}
+
+                {customerRefundStep === 3 && selectedEligibleOrder && (
+                  <section className="guided-form-section">
+                    <div className="field-section-heading">
+                      <h3>Review and submit</h3>
+                      <p>Confirm the order details below. The refund amount cannot be changed.</p>
+                    </div>
+                    <OrderSummary order={selectedEligibleOrder} />
+                    <dl className="review-details">
+                      <div><dt>Reason</dt><dd>{customerRefundReason}</dd></div>
+                      <div><dt>Refund method</dt><dd>{selectedEligibleOrder.refund_method}</dd></div>
+                      <div><dt>Documents</dt><dd>{customerDocuments.length || 'None attached'}</dd></div>
+                    </dl>
+                    {customerRefundDetails.trim() && (
+                      <div className="review-note">
+                        <strong>Additional details</strong>
+                        <p>{customerRefundDetails.trim()}</p>
+                      </div>
+                    )}
+                    <label className="confirmation-check">
+                      <input required type="checkbox" />
+                      <span>I confirm that the information is accurate and belongs to my verified order.</span>
+                    </label>
+                    <div className="guided-form-actions">
+                      <button className="secondary-button" onClick={() => setCustomerRefundStep(2)} type="button">Back</button>
+                      <button
+                        className="primary-action"
+                        disabled={!supabase || isSubmittingRefund}
+                        type="submit"
+                      >
+                        {isSubmittingRefund ? 'Submitting...' : 'Submit refund request'}
+                      </button>
+                    </div>
+                  </section>
+                )}
               </form>
             )}
 
@@ -2248,12 +2637,13 @@ function App() {
                               }
                             : undefined}
                           onOpenDocument={handleOpenDocument}
+                          onDownloadReceipt={() => void handleDownloadReceipt(request)}
                           request={request}
                           timeline={statusHistory.filter((item) => item.refund_request_id === request.id)}
                         />
                       ))}
                       {customerPanelRequests.length === 0 && (
-                        <p className="empty-state">No refund requests submitted yet.</p>
+                        <p className="empty-state">No refund requests yet. Find an eligible order above to begin.</p>
                       )}
                     </div>
                   ) : (
@@ -2261,6 +2651,32 @@ function App() {
                   )}
                 </section>
               </aside>
+            )}
+            {profile?.role === 'customer' && (
+              <section className="customer-help-section" id="help">
+                <div className="field-section-heading">
+                  <p className="eyebrow">Refund help</p>
+                  <h2>Frequently asked questions</h2>
+                </div>
+                <div className="faq-grid">
+                  <details>
+                    <summary>Which orders are eligible?</summary>
+                    <p>Only orders entered and marked eligible by the refund operations team can be submitted.</p>
+                  </details>
+                  <details>
+                    <summary>How long does review take?</summary>
+                    <p>Timing depends on verification and payment processing. Your request timeline updates automatically.</p>
+                  </details>
+                  <details>
+                    <summary>How is the amount decided?</summary>
+                    <p>The refundable amount is recorded from the order by authorized staff and cannot be edited by customers.</p>
+                  </details>
+                  <details id="contact">
+                    <summary>What if my request is denied or my order is missing?</summary>
+                    <p>Contact the refund operations team and provide the order number shown on your purchase receipt.</p>
+                  </details>
+                </div>
+              </section>
             )}
           </section>
         )}
@@ -2275,6 +2691,100 @@ function App() {
                 </article>
               ))}
             </div>
+
+            <section className="order-ledger-layout">
+              <form className="work-card form-grid" onSubmit={handleEligibleOrderSubmit}>
+                <div className="section-heading full-span">
+                  <p className="eyebrow">Manual order ledger</p>
+                  <h2>Add an eligible customer order</h2>
+                  <p className="section-copy">
+                    Customers can only request the product, purchase date, method, and amount recorded here.
+                  </p>
+                </div>
+                <label>
+                  Order number
+                  <input name="orderNumber" placeholder="Unique order number" required />
+                </label>
+                <label>
+                  Customer email
+                  <input name="customerEmail" placeholder="customer@example.com" required type="email" />
+                </label>
+                <label>
+                  Customer full name
+                  <input autoComplete="name" name="customerFullName" required />
+                </label>
+                <label>
+                  Customer phone
+                  <input autoComplete="tel" name="customerPhone" type="tel" />
+                </label>
+                <label>
+                  Product
+                  <select defaultValue="McAfee" name="productName" required>
+                    {antivirusOptions.map((option) => (
+                      <option key={option.label} value={option.label}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Purchase date
+                  <input name="purchaseDate" required type="date" />
+                </label>
+                <label>
+                  Refundable amount
+                  <input min="0.01" name="refundableAmount" required step="0.01" type="number" />
+                </label>
+                <label>
+                  Refund method
+                  <select defaultValue="Original payment method" name="refundMethod" required>
+                    <option>Original payment method</option>
+                    <option>Store credit</option>
+                    <option>Manual bank transfer</option>
+                  </select>
+                </label>
+                <button className="primary-action" disabled={isCreatingOrder} type="submit">
+                  {isCreatingOrder ? 'Saving order...' : 'Save eligible order'}
+                </button>
+              </form>
+
+              <section className="work-card">
+                <div className="section-heading row-heading">
+                  <div>
+                    <p className="eyebrow">Eligible orders</p>
+                    <h2>Manual order records</h2>
+                  </div>
+                  <span className="realtime-badge">Updates automatically</span>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Order</th><th>Customer</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {eligibleOrders.map((order) => (
+                        <tr key={order.id}>
+                          <td data-label="Order">{order.order_number}</td>
+                          <td data-label="Customer">{order.customer_full_name}<small className="table-subtext">{order.customer_email}</small></td>
+                          <td data-label="Product">{order.product_name}</td>
+                          <td data-label="Amount">${Number(order.refundable_amount).toFixed(2)}</td>
+                          <td data-label="Status">
+                            <select
+                              aria-label={`Status for order ${order.order_number}`}
+                              disabled={order.status === 'refund_requested' || order.status === 'refunded'}
+                              onChange={(event) => void handleUpdateEligibleOrderStatus(order, event.target.value as EligibleOrderRow['status'])}
+                              value={order.status}
+                            >
+                              <option value="eligible">Eligible</option>
+                              <option value="blocked">Blocked</option>
+                              <option value="refund_requested">Refund requested</option>
+                              <option value="refunded">Refunded</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {eligibleOrders.length === 0 && <p className="empty-state">No eligible orders have been recorded.</p>}
+                </div>
+              </section>
+            </section>
 
             <form className="work-card form-grid staff-intake-card" onSubmit={handleStaffRefundSubmit}>
               <div className="section-heading">
@@ -2348,7 +2858,7 @@ function App() {
               <label>
                 Amount Requested
                 <input
-                  min="0"
+                  min="0.01"
                   name="amountRequested"
                   onChange={(event) => setStaffRefundAmount(event.target.value)}
                   required
@@ -2380,7 +2890,6 @@ function App() {
                 />
               </label>
               <div className="document-checklist">
-                <span>Government ID</span>
                 <span>Purchase Receipt</span>
                 <span>Cancellation Proof</span>
               </div>
@@ -2940,175 +3449,311 @@ function App() {
         )}
 
         {activeView === 'bank' && (
-          <section className="content-grid">
-            <section className="work-card form-grid">
-              <div className="section-heading full-span">
-                <p className="eyebrow">Bank processing interface</p>
-                <h2>Authorized payment request</h2>
+          <section className="boa-workspace">
+            <header className="boa-header">
+              <div className="boa-brand">
+                <span aria-hidden="true" className="boa-brand-mark">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <div>
+                  <strong>BANK OF AMERICA</strong>
+                  <span>Payment Operations</span>
+                </div>
               </div>
-              <label className="full-span">
-                Approved Refund
-                <select
-                  onChange={(event) => setSelectedRequestId(event.target.value)}
-                  value={selectedPaymentRequest?.id ?? ''}
-                >
-                  <option disabled value="">
-                    Select approved refund
-                  </option>
-                  {paymentReadyRequests.map((request) => (
-                    <option key={request.id} value={request.id}>
-                      {request.reference_number} - {request.product_name} - {request.customers?.full_name ?? 'Unknown'} - $
-                      {Number(request.amount_requested).toFixed(2)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Beneficiary Name
-                <input
-                  onChange={(event) => setBeneficiaryName(event.target.value)}
-                  placeholder="Beneficiary name"
-                  value={beneficiaryName}
-                />
-              </label>
-              <label>
-                Transaction Reference
-                <input
-                  onChange={(event) => setTransactionReference(event.target.value)}
-                  placeholder="Auto-generated if blank"
-                  value={transactionReference}
-                />
-              </label>
-              <label>
-                Destination Account Last 4
-                <input
-                  inputMode="numeric"
-                  maxLength={4}
-                  onChange={(event) =>
-                    setBeneficiaryLast4(event.target.value.replace(/\D/g, '').slice(0, 4))
-                  }
-                  placeholder="Last 4 digits only"
-                  value={beneficiaryLast4}
-                />
-              </label>
-              <label>
-                Payment Amount
-                <input
-                  readOnly
-                  value={
-                    selectedPaymentRequest
-                      ? Number(selectedPaymentRequest.amount_requested).toFixed(2)
-                      : ''
-                  }
-                />
-              </label>
-              <label>
-                Payment Status
-                <select
-                  onChange={(event) => setPaymentStatus(event.target.value)}
-                  value={paymentStatus}
-                >
-                  {bankStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {formatStatus(status)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="document-checklist full-span">
-                <span>Verify beneficiary information</span>
-                <span>Create authorized banking API request</span>
-                <span>Track payment status</span>
-                <span>Generate confirmation receipt</span>
-                <span>Maintain transaction logs</span>
+              <div className="boa-connection-state">
+                <span aria-hidden="true" />
+                API not connected
               </div>
-              <button
-                className="primary-action"
-                disabled={
-                  !selectedPaymentRequest || Boolean(selectedPaymentTransaction) || actionLoading === 'payment'
-                }
-                onClick={() => void handleCreatePayment()}
-                type="button"
-              >
-                {selectedPaymentTransaction ? 'Payment request created' : 'Submit authorized payment request'}
-              </button>
-              <button
-                className="secondary-action full-span"
-                disabled={!selectedPaymentTransaction || actionLoading === 'payment-status'}
-                onClick={() => void handleUpdatePaymentStatus()}
-                type="button"
-              >
-                Update payment status
-              </button>
-            </section>
+            </header>
 
-            <aside className="work-card">
-              <div className="section-heading">
-                <p className="eyebrow">Integration guardrails</p>
-                <h2>Payment controls</h2>
-              </div>
-              <dl className="summary-list">
-                <div>
-                  <dt>Bank API</dt>
-                  <dd>Configured by secrets manager</dd>
-                </div>
-                <div>
-                  <dt>API credentials</dt>
-                  <dd>Environment only</dd>
-                </div>
-                <div>
-                  <dt>Estimated payment ETA</dt>
-                  <dd>{paymentEta}</dd>
-                </div>
-                <div>
-                  <dt>Current transaction</dt>
-                  <dd>{selectedPaymentTransaction?.transaction_reference ?? 'Not created'}</dd>
-                </div>
-                <div>
-                  <dt>Retry policy</dt>
-                  <dd>Logged with backoff</dd>
-                </div>
-              </dl>
-              <div className="timeline-list">
-                {paymentTransactions.map((transaction) => (
-                  <article key={transaction.id}>
-                    <strong>{transaction.transaction_reference}</strong>
-                    <span>{formatStatus(transaction.status)}</span>
+            <div className="boa-notice" role="status">
+              <strong>Internal payment recording only</strong>
+              <p>
+                This portal is not connected to Bank of America. Staff may record and reconcile a
+                payment handled outside the portal, but no funds are transmitted from this screen.
+              </p>
+            </div>
+
+            <div className="boa-layout">
+              <section className="boa-main-stack">
+                <section className="work-card boa-payment-card">
+                  <div className="boa-section-heading">
+                    <div>
+                      <p className="eyebrow">Refund disbursement</p>
+                      <h2>Prepare payment</h2>
+                    </div>
+                    <span className="boa-draft-badge">Manual processing</span>
+                  </div>
+
+                  <label>
+                    Approved refund
+                    <select
+                      onChange={(event) => setSelectedRequestId(event.target.value)}
+                      value={selectedPaymentRequest?.id ?? ''}
+                    >
+                      <option disabled value="">
+                        Select an approved refund
+                      </option>
+                      {paymentReadyRequests.map((request) => (
+                        <option key={request.id} value={request.id}>
+                          {request.reference_number} - {request.customers?.full_name ?? 'Unknown'} - $
+                          {Number(request.amount_requested).toFixed(2)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="boa-refund-summary">
+                    <div>
+                      <span>Customer</span>
+                      <strong>{selectedPaymentRequest?.customers?.full_name ?? 'No refund selected'}</strong>
+                    </div>
+                    <div>
+                      <span>Reference</span>
+                      <strong>{selectedPaymentRequest?.reference_number ?? '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Order</span>
+                      <strong>{selectedPaymentRequest?.order_number ?? '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Amount</span>
+                      <strong>
+                        {selectedPaymentRequest
+                          ? `$${Number(selectedPaymentRequest.amount_requested).toFixed(2)}`
+                          : '-'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="boa-form-grid">
+                    <label>
+                      Beneficiary name
+                      <input
+                        onChange={(event) => setBeneficiaryName(event.target.value)}
+                        placeholder="Name on destination account"
+                        value={beneficiaryName}
+                      />
+                    </label>
+                    <label>
+                      Destination account
+                      <input
+                        inputMode="numeric"
+                        maxLength={4}
+                        onChange={(event) =>
+                          setBeneficiaryLast4(event.target.value.replace(/\D/g, '').slice(0, 4))
+                        }
+                        placeholder="Last 4 digits"
+                        value={beneficiaryLast4}
+                      />
+                    </label>
+                    <label>
+                      Transaction reference
+                      <input
+                        onChange={(event) => setTransactionReference(event.target.value)}
+                        placeholder="Auto-generated if blank"
+                        value={transactionReference}
+                      />
+                    </label>
+                    <label>
+                      Payment status
+                      <select
+                        onChange={(event) => setPaymentStatus(event.target.value)}
+                        value={paymentStatus}
+                      >
+                        {bankStatuses.map((status) => (
+                          <option key={status} value={status}>
+                            {formatStatus(status)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="boa-action-bar">
                     <p>
-                      ${Number(transaction.amount).toFixed(2)} via {transaction.provider}
-                      {transaction.beneficiary_last4 ? ` ending ${transaction.beneficiary_last4}` : ''}
+                      This creates an internal record only. Complete the actual payment through the
+                      authorized bank process.
                     </p>
-                  </article>
-                ))}
-                {paymentTransactions.length === 0 && (
-                  <p className="empty-state">No payment transactions yet.</p>
-                )}
-              </div>
-              <div className="section-heading notification-heading">
-                <p className="eyebrow">Email notifications</p>
-                <h2>Resend delivery log</h2>
-              </div>
-              <div className="timeline-list">
-                {notifications.map((notification) => (
-                  <article key={notification.id}>
-                    <strong>{notification.subject ?? titleCase(notification.template.replaceAll('_', ' '))}</strong>
-                    <span>{formatStatus(notification.status)}</span>
-                    <p>
-                      {notification.recipient} - attempt {notification.attempt_count}/
-                      {notification.max_attempts}
-                    </p>
-                    {notification.sent_at && <p>Sent {formatDateTime(notification.sent_at)}</p>}
-                    {notification.last_error && <p>{notification.last_error}</p>}
-                  </article>
-                ))}
-                {notifications.length === 0 && (
-                  <p className="empty-state">No email notifications queued yet.</p>
-                )}
-              </div>
-            </aside>
+                    <button
+                      disabled={
+                        !selectedPaymentRequest ||
+                        Boolean(selectedPaymentTransaction) ||
+                        actionLoading === 'payment'
+                      }
+                      onClick={() => void handleCreatePayment()}
+                      title="Create a record for a payment handled outside the portal"
+                      type="button"
+                    >
+                      {selectedPaymentTransaction ? 'Payment record created' : 'Create payment record'}
+                    </button>
+                    <button
+                      className="boa-secondary-button"
+                      disabled={!selectedPaymentTransaction || actionLoading === 'payment-status'}
+                      onClick={() => void handleUpdatePaymentStatus()}
+                      title="Save the selected manual payment status"
+                      type="button"
+                    >
+                      Update status manually
+                    </button>
+                  </div>
+                </section>
+
+                <section className="work-card boa-history-card">
+                  <div className="boa-section-heading">
+                    <div>
+                      <p className="eyebrow">Transaction activity</p>
+                      <h2>Payment records</h2>
+                    </div>
+                    <span>{paymentTransactions.length} records</span>
+                  </div>
+                  <div className="boa-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Transaction</th>
+                          <th>Amount</th>
+                          <th>Account</th>
+                          <th>Status</th>
+                          <th>Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paymentTransactions.map((transaction) => (
+                          <tr key={transaction.id}>
+                            <td data-label="Transaction">{transaction.transaction_reference}</td>
+                            <td data-label="Amount">${Number(transaction.amount).toFixed(2)}</td>
+                            <td data-label="Account">
+                              {transaction.beneficiary_last4 ? `Ending ${transaction.beneficiary_last4}` : '-'}
+                            </td>
+                            <td data-label="Status">
+                              <span className={`boa-status ${transaction.status}`}>
+                                {formatStatus(transaction.status)}
+                              </span>
+                            </td>
+                            <td data-label="Updated">{formatDateTime(transaction.updated_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {paymentTransactions.length === 0 && (
+                      <p className="empty-state">No internal payment records yet.</p>
+                    )}
+                  </div>
+                </section>
+              </section>
+
+              <aside className="boa-side-stack">
+                <section className="work-card boa-readiness-card">
+                  <div className="section-heading">
+                    <p className="eyebrow">Integration readiness</p>
+                    <h2>Connection checklist</h2>
+                  </div>
+                  <ol className="boa-checklist">
+                    <li className="complete"><span>1</span><div><strong>Portal workflow</strong><p>Approved refunds are ready for payment preparation.</p></div></li>
+                    <li className="complete"><span>2</span><div><strong>Manual reconciliation</strong><p>Staff can record external payment references and settlement.</p></div></li>
+                    <li><span>3</span><div><strong>API approval</strong><p>Official access and written authorization are still required.</p></div></li>
+                    <li><span>4</span><div><strong>API activation</strong><p>Automated transmission requires sandbox acceptance testing.</p></div></li>
+                  </ol>
+                  <dl className="boa-details">
+                    <div><dt>Selected refund</dt><dd>{selectedPaymentRequest?.reference_number ?? 'None'}</dd></div>
+                    <div><dt>Estimated processing</dt><dd>{paymentEta}</dd></div>
+                    <div><dt>Processing mode</dt><dd>Manual record</dd></div>
+                  </dl>
+                </section>
+
+                <section className="work-card boa-notification-card">
+                  <div className="section-heading">
+                    <p className="eyebrow">Customer communication</p>
+                    <h2>Email delivery</h2>
+                  </div>
+                  <div className="boa-notification-list">
+                    {notifications.slice(0, 5).map((notification) => (
+                      <article key={notification.id}>
+                        <div>
+                          <strong>{notification.subject ?? titleCase(notification.template.replaceAll('_', ' '))}</strong>
+                          <span>{notification.recipient}</span>
+                        </div>
+                        <span className={`boa-status ${notification.status}`}>
+                          {formatStatus(notification.status)}
+                        </span>
+                      </article>
+                    ))}
+                    {notifications.length === 0 && (
+                      <p className="empty-state">No email delivery records yet.</p>
+                    )}
+                  </div>
+                </section>
+              </aside>
+            </div>
+
+            <footer className="boa-disclaimer">
+              Bank of America is a third-party financial institution. This internal refund portal is
+              not a Bank of America website and does not currently connect to its services. Record
+              Settled only after staff confirm the external bank payment.
+            </footer>
           </section>
         )}
+        <footer className="portal-footer">
+          <div id="portal-help">
+            <strong>Help</strong>
+            <span>Use the order number from the purchase receipt. Staff can verify missing order records.</span>
+          </div>
+          <div id="portal-contact">
+            <strong>Contact</strong>
+            <span>Contact your authorized refund operations team or portal administrator for account assistance.</span>
+          </div>
+        </footer>
       </section>
+
+      {securityDialogOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section aria-labelledby="security-dialog-title" aria-modal="true" className="customer-dialog info security-dialog" role="dialog">
+            <div>
+              <p className="eyebrow">Account security</p>
+              <h2 id="security-dialog-title">Two-factor authentication</h2>
+            </div>
+            {hasVerifiedMfa ? (
+              <>
+                <p>Your account requires an authenticator code after password sign-in.</p>
+                <button className="danger-button" onClick={() => void handleDisableMfa()} type="button">
+                  Disable two-factor authentication
+                </button>
+              </>
+            ) : mfaEnrollmentId ? (
+              <>
+                <p>Scan this code with an authenticator app, then enter the six-digit code.</p>
+                {mfaEnrollmentQr && <img alt="Authenticator setup QR code" className="mfa-qr" src={mfaEnrollmentQr} />}
+                <label>
+                  Manual setup key
+                  <input readOnly value={mfaEnrollmentSecret} />
+                </label>
+                <label>
+                  Authentication code
+                  <input
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    onChange={(event) => setMfaEnrollmentCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    value={mfaEnrollmentCode}
+                  />
+                </label>
+                <button disabled={mfaEnrollmentCode.length !== 6} onClick={() => void handleVerifyMfaEnrollment()} type="button">
+                  Verify and enable
+                </button>
+              </>
+            ) : (
+              <>
+                <p>Add an optional authenticator app as a second verification step when signing in.</p>
+                <button onClick={() => void handleBeginMfaEnrollment()} type="button">Set up authenticator</button>
+              </>
+            )}
+            <button className="secondary-button" onClick={() => setSecurityDialogOpen(false)} type="button">Close</button>
+          </section>
+        </div>
+      )}
 
       {customerDialog && (
         <div className="modal-backdrop" role="presentation">
@@ -3141,53 +3786,35 @@ function App() {
           <section
             aria-labelledby="auth-dialog-title"
             aria-modal="true"
-            className={`customer-dialog ${authDialog === 'confirm-sign-out' ? 'danger' : 'info'}`}
+            className="customer-dialog danger"
             role="dialog"
           >
-            {authDialog === 'verify-email' ? (
-              <>
-                <div>
-                  <p className="eyebrow">Customer account verification</p>
-                  <h2 id="auth-dialog-title">Check your email</h2>
-                </div>
-                <p>
-                  Your customer account has been created. Open the verification email and confirm
-                  your address before signing in.
-                </p>
-                <button onClick={() => setAuthDialog(null)} type="button">
-                  Back to sign in
-                </button>
-              </>
-            ) : (
-              <>
-                <div>
-                  <p className="eyebrow">Secure session</p>
-                  <h2 id="auth-dialog-title">Sign out of the portal?</h2>
-                </div>
-                <p>
-                  This will end your current session on this browser. Any unsaved form entries will
-                  be cleared.
-                </p>
-                <div className="modal-actions">
-                  <button
-                    className="secondary-button"
-                    disabled={isSigningOut}
-                    onClick={() => setAuthDialog(null)}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="danger-button"
-                    disabled={isSigningOut}
-                    onClick={() => void handleSignOut()}
-                    type="button"
-                  >
-                    {isSigningOut ? 'Signing out...' : 'Log out'}
-                  </button>
-                </div>
-              </>
-            )}
+            <div>
+              <p className="eyebrow">Secure session</p>
+              <h2 id="auth-dialog-title">Sign out of the portal?</h2>
+            </div>
+            <p>
+              This will end your current session on this browser. Any unsaved form entries will be
+              cleared.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                disabled={isSigningOut}
+                onClick={() => setAuthDialog(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                disabled={isSigningOut}
+                onClick={() => void handleSignOut()}
+                type="button"
+              >
+                {isSigningOut ? 'Signing out...' : 'Log out'}
+              </button>
+            </div>
           </section>
         </div>
       )}
@@ -3316,6 +3943,7 @@ function RequestSummaryCard({
   documents = [],
   documentLoadingId = '',
   onCancel,
+  onDownloadReceipt,
   onOpenDocument,
   request,
   showCustomer = false,
@@ -3324,6 +3952,7 @@ function RequestSummaryCard({
   documents?: RefundDocumentRow[]
   documentLoadingId?: string
   onCancel?: () => void
+  onDownloadReceipt?: () => void
   onOpenDocument?: (document: RefundDocumentRow) => void | Promise<void>
   request: RefundRequestRow
   showCustomer?: boolean
@@ -3332,6 +3961,11 @@ function RequestSummaryCard({
   const orderedTimeline = [...timeline].sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   )
+  const trackingStages = ['submitted', 'under_review', 'approved', 'credited']
+  const trackingStatus = request.status === 'documents_verified' ? 'under_review' : request.status
+  const trackingIndex = trackingStages.indexOf(trackingStatus)
+  const estimatedResolution = new Date(request.created_at)
+  estimatedResolution.setDate(estimatedResolution.getDate() + 10)
 
   return (
     <article className="request-summary">
@@ -3353,6 +3987,28 @@ function RequestSummaryCard({
         </div>
       )}
       <span className="status-pill">{formatStatus(request.status)}</span>
+      <div className="customer-status-progress" aria-label={`Current status: ${formatStatus(request.status)}`}>
+        {trackingStages.map((stage, index) => {
+          const timelineItem = orderedTimeline.find((item) =>
+            stage === 'under_review'
+              ? ['under_review', 'documents_verified'].includes(item.to_status)
+              : item.to_status === stage,
+          )
+          const reached = trackingIndex >= index || Boolean(timelineItem)
+          return (
+            <div className={reached ? 'reached' : ''} key={stage}>
+              <span aria-hidden="true">{index + 1}</span>
+              <strong>{stage === 'credited' ? 'Refunded' : formatStatus(stage)}</strong>
+              <small>{timelineItem ? formatDate(timelineItem.created_at) : 'Pending'}</small>
+            </div>
+          )
+        })}
+      </div>
+      {!['credited', 'completed', 'rejected'].includes(request.status) && (
+        <p className="resolution-estimate">
+          Estimated resolution by <strong>{formatDate(estimatedResolution.toISOString())}</strong>. This may change if additional verification is required.
+        </p>
+      )}
       <dl>
         <div>
           <dt>Product</dt>
@@ -3390,14 +4046,70 @@ function RequestSummaryCard({
           ))}
         </div>
       )}
-      {onCancel && (
+      {(onCancel || onDownloadReceipt) && (
         <div className="request-summary-actions">
-          <button className="danger-button" onClick={onCancel} type="button">
-            Cancel request
-          </button>
+          {onDownloadReceipt && (
+            <button className="secondary-button" onClick={onDownloadReceipt} type="button">
+              Download PDF receipt
+            </button>
+          )}
+          {onCancel && (
+            <button className="danger-button" onClick={onCancel} type="button">
+              Cancel request
+            </button>
+          )}
         </div>
       )}
     </article>
+  )
+}
+
+function OrderSummary({ order }: { order: EligibleOrderRow }) {
+  const product = getAntivirusOption(order.product_name)
+  return (
+    <div className="verified-order-summary">
+      <img alt="" aria-hidden="true" src={product.icon} />
+      <dl>
+        <div><dt>Order</dt><dd>{order.order_number}</dd></div>
+        <div><dt>Product</dt><dd>{order.product_name}</dd></div>
+        <div><dt>Purchase date</dt><dd>{formatDate(order.purchase_date)}</dd></div>
+        <div><dt>Refund amount</dt><dd>${Number(order.refundable_amount).toFixed(2)}</dd></div>
+      </dl>
+    </div>
+  )
+}
+
+function CustomerFilePreview({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const previewUrl = useMemo(
+    () => file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+    [file],
+  )
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
+
+  return (
+    <article>
+      {previewUrl ? <img alt={`Preview of ${file.name}`} src={previewUrl} /> : <span aria-hidden="true">PDF</span>}
+      <div><strong>{file.name}</strong><small>{formatFileSize(file.size)}</small></div>
+      <button aria-label={`Remove ${file.name}`} onClick={onRemove} title="Remove file" type="button">X</button>
+    </article>
+  )
+}
+
+function NotFoundPage({ onReturn }: { onReturn: () => void }) {
+  return (
+    <main className="not-found-page">
+      <section>
+        <p className="eyebrow">404</p>
+        <h1>Page not found</h1>
+        <p>The page you requested is not part of the refund portal.</p>
+        <button onClick={onReturn} type="button">Return to the portal</button>
+      </section>
+    </main>
   )
 }
 

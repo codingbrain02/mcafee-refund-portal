@@ -27,7 +27,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
       return (
         <main className="error-boundary">
           <section>
-            <p>Secure refund operations</p>
+            <p>Refund portal</p>
             <h1>The portal could not finish loading</h1>
             <span>Your session is unchanged. Reload the page to try again.</span>
             <button onClick={() => window.location.reload()} type="button">

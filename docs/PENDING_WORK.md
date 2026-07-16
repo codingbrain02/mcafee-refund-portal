@@ -11,13 +11,11 @@ The application code is ready for the items below, but they require external ser
 - Complete final browser acceptance checks with real customer, manager, and administrator accounts.
 - Complete document upload acceptance checks using valid PDF, JPG, and PNG samples below 10 MB.
 
-## Deferred Banking - Pending
+## Optional Future Integrations - Deferred
 
-- Obtain Bank of America's authorized API documentation, sandbox access, client credentials, and written approval for the intended payment workflow.
-- Confirm the approved branding and interface rules. The portal must not imitate Bank of America or call undocumented endpoints.
-- Implement server-only beneficiary validation and payment submission through the authorized API.
-- Add idempotency controls, signed webhook verification, retry handling, reconciliation, and confirmation receipts.
-- Store only transaction references and masked beneficiary details; never store raw bank credentials or full account numbers.
-- Run sandbox and production banking acceptance tests before enabling payment controls.
+- An order API is not required. Authorized staff maintain the eligible-order ledger manually.
+- A Bank of America API is not required. Authorized staff record externally processed payments and settlement manually.
+- Future automated banking would require official documentation, sandbox access, client credentials, written approval, idempotency, signed webhooks, reconciliation, and production acceptance tests.
+- Future automated order lookup would require an authorized order-system contract and server-side validation.
 
-Until these requirements are supplied, banking controls must remain disabled and no transaction should be represented as submitted to Bank of America.
+No manual portal record may be represented as an API-transmitted Bank of America payment.

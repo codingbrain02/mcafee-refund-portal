@@ -48,13 +48,34 @@ test('enforces staff account creation role boundaries', () => {
   assert.equal(canCreatePortalRole(refundManager, 'customer'), false)
 })
 
-test('public registration remains customer-only', () => {
+test('public portal is sign-in only and customer refunds use verified orders', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8')
+  const migration = readFileSync(
+    new URL('../supabase/migrations/20260716090000_manual_order_ledger.sql', import.meta.url),
+    'utf8',
+  )
 
-  assert.match(app, /async function handleSignUp/)
-  assert.match(app, /Create customer account/)
-  assert.match(schema, /else 'customer'::public\.user_role/)
+  assert.doesNotMatch(app, /async function handleSignUp/)
+  assert.doesNotMatch(app, /Create customer account/)
+  assert.match(app, /submit_eligible_order_refund/)
+  assert.match(migration, /customer_user\.email_confirmed_at is null/)
+  assert.match(migration, /order_record\.refundable_amount/)
+  assert.match(migration, /refund_requests_eligible_order_unique/)
+  assert.match(migration, /refund-submit:/)
+})
+
+test('customer form does not collect government ID or an arbitrary refund amount', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const customerForm = app.slice(
+    app.indexOf('className="work-card guided-refund-form"'),
+    app.indexOf("{activeView === 'manager'"),
+  )
+
+  assert.doesNotMatch(customerForm, /Government ID/i)
+  assert.doesNotMatch(customerForm, /name="amountRequested"/)
+  assert.match(customerForm, /<OrderSummary order=/)
+  assert.match(customerForm, /Antivirus product/)
+  assert.match(app, /The selected antivirus does not match this order/)
 })
 
 test('deployment configuration contains core browser protections', () => {

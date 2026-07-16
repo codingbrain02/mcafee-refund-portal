@@ -11,11 +11,13 @@
 ## Data flow
 
 1. Supabase Auth restores the browser session.
-2. RLS limits browser queries by role and ownership.
-3. Refund actions write status history and immutable audit metadata.
-4. Database triggers queue email notifications.
-5. Authenticated portal actions invoke the Resend processor.
-6. Document requests call a server endpoint that checks ownership and creates a five-minute Storage link.
+2. Staff maintain authoritative eligible orders in PostgreSQL.
+3. RLS exposes an order to a customer only when its email matches the verified account.
+4. A security-definer function locks product, date, method, and amount to the selected order and generates the refund reference.
+5. Refund actions write status history and immutable audit metadata.
+6. Database triggers queue email notifications.
+7. Authenticated portal actions invoke the Resend processor.
+8. Document requests call a server endpoint that checks ownership and creates a five-minute Storage link.
 
 ## Security model
 
@@ -41,4 +43,4 @@ Email failures remain queued with retry metadata. Staff session restoration retr
 
 ## Banking integration boundary
 
-The payment interface is intentionally provider-neutral internally. A future integration must use an authorized banking API, secrets manager credentials, idempotency keys, webhook verification, retry handling, and immutable payment-event auditing. Brand assets must not imply affiliation or reproduce a bank's private interface without permission.
+The payment interface records manually processed external payments. `manual_bank_record` identifies records that were not transmitted by an API. A future integration must use an authorized banking API, secrets manager credentials, idempotency keys, webhook verification, retry handling, and immutable payment-event auditing.

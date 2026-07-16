@@ -29,6 +29,11 @@ Items that depend on external accounts, approvals, or authorized banking credent
 
 ## Refund workflow
 
+- [ ] Staff can add an eligible order manually.
+- [ ] Customer sees only orders matching the verified account email.
+- [ ] Customer cannot edit product, date, refund method, amount, or reference.
+- [ ] A duplicate refund for the same eligible order is rejected.
+- [ ] Submission rate limiting is enforced.
 - [ ] Customer can submit and cancel an eligible request.
 - [ ] Staff can submit on behalf of a customer.
 - [ ] Review actions lock in the correct order.
@@ -51,4 +56,5 @@ Items that depend on external accounts, approvals, or authorized banking credent
 - [ ] Export audit events record format, filters, count, total, actor, and timestamp.
 - [ ] Audit events identify actor, action, target, and timestamp.
 - [ ] Vercel logs contain no access tokens, service keys, or full bank details.
-- [ ] Banking API controls remain disabled until authorized credentials are supplied.
+- [ ] Manual payment records are clearly identified as non-API transactions.
+- [ ] Settled is recorded only after external payment confirmation.
