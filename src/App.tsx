@@ -162,6 +162,7 @@ function App() {
   const [authDialog, setAuthDialog] = useState<AuthDialog>(null)
   const [deleteTargetUser, setDeleteTargetUser] = useState<UserAccountRow | null>(null)
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('')
+  const [deleteUserError, setDeleteUserError] = useState('')
   const [isDeletingUser, setIsDeletingUser] = useState(false)
   const [cancelTargetRequest, setCancelTargetRequest] = useState<RefundRequestRow | null>(null)
   const [cancelConfirmationText, setCancelConfirmationText] = useState('')
@@ -1840,6 +1841,7 @@ function App() {
     }
 
     setIsDeletingUser(true)
+    setDeleteUserError('')
 
     const { error } = await supabase.rpc('delete_user_account', {
       confirmation: deleteConfirmationText,
@@ -1849,15 +1851,17 @@ function App() {
     setIsDeletingUser(false)
 
     if (error) {
-      setNotice({ kind: 'error', message: error.message })
+      setDeleteUserError(getCustomerFriendlyError(error.message))
       return
     }
 
+    const deletedEmail = deleteTargetUser.email
     await loadUsers(profile.email)
     await loadAuditLogs()
     setDeleteTargetUser(null)
     setDeleteConfirmationText('')
-    setNotice({ kind: 'success', message: `${deleteTargetUser.email} was deleted from the portal.` })
+    setDeleteUserError('')
+    showCustomerDialog('success', `${deletedEmail} and its related portal records were deleted.`, 'Account deleted')
   }
 
   async function handleCreatePayment() {
@@ -3317,6 +3321,7 @@ function App() {
                                   onClick={() => {
                                     setDeleteTargetUser(user)
                                     setDeleteConfirmationText('')
+                                    setDeleteUserError('')
                                   }}
                                   title={
                                     !canManageUserAccounts
@@ -3809,12 +3814,14 @@ function App() {
               placeholder="Delete user account"
               value={deleteConfirmationText}
             />
+            {deleteUserError && <p className="modal-inline-error" role="alert">{deleteUserError}</p>}
             <div className="modal-actions">
               <button
                 className="secondary-button"
                 onClick={() => {
                   setDeleteTargetUser(null)
                   setDeleteConfirmationText('')
+                  setDeleteUserError('')
                 }}
                 type="button"
               >

@@ -250,6 +250,18 @@ td,
   min-height: 44px;
 }
 
+.modal-inline-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f0b7b7;
+  border-radius: 6px;
+  background: #fff1f1;
+  color: #a71d24;
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
 .secondary-button,
 .danger-button,
 .table-action-button {

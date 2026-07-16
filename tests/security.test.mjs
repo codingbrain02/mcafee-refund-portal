@@ -48,6 +48,22 @@ test('enforces staff account creation role boundaries', () => {
   assert.equal(canCreatePortalRole(refundManager, 'customer'), false)
 })
 
+test('portal account deletion covers current user-linked records and reports modal errors', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const migration = readFileSync(
+    new URL('../supabase/migrations/20260716130000_fix_complete_user_deletion.sql', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(migration, /if not public\.is_portal_administrator\(\)/)
+  assert.match(migration, /update public\.refund_requests request[\s\S]*eligible_order_id = null/)
+  assert.match(migration, /delete from public\.eligible_orders/)
+  assert.match(migration, /lower\(customer\.email\)/)
+  assert.match(migration, /delete from auth\.users/)
+  assert.match(app, /setDeleteUserError\(getCustomerFriendlyError\(error\.message\)\)/)
+  assert.match(app, /modal-inline-error/)
+})
+
 test('verified customers can submit requests while staff control refund amounts', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const migration = readFileSync(
