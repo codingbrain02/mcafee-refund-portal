@@ -2,7 +2,7 @@
 
 A secure, role-based refund operations portal for verified customer orders, supporting-document review, ordered approvals, manual payment reconciliation, customer email notifications, reporting, and immutable audit history.
 
-The application is designed to operate without an order-system or banking API. Authorized staff maintain eligible order records manually, and customers can only request the product, purchase date, refund method, and refundable amount stored in those records. The Bank of America-styled payment workspace records payments completed outside the portal; it does not transmit money or connect to Bank of America.
+The application is designed to operate without an order-system or banking API. Customers submit their order number, antivirus product, reason, and optional documents directly. Authorized staff verify the purchase date, refundable amount, and refund method before review can begin. The Bank of America-styled payment workspace records payments completed outside the portal; it does not transmit money or connect to Bank of America.
 
 ## Production status
 
@@ -45,15 +45,14 @@ Authentication supports:
 
 A verified customer can:
 
-- Search for an eligible order by order number and select the antivirus shown on the purchase confirmation.
-- See only orders whose recorded email matches the verified portal account.
-- Continue only when the selected antivirus matches the product recorded by staff.
-- Review the staff-recorded product, purchase date, refund amount, and refund method.
+- Enter the order number and select the antivirus shown on the purchase confirmation.
+- Submit the request immediately without waiting for staff to create an order record.
+- See the amount and refund method as Pending verification until staff confirms them.
 - Select a refund reason.
 - Optionally attach PDF, JPG, or PNG documents up to 10 MB each.
 - Preview image attachments and remove files before submission.
 - Review the complete request before submission.
-- Submit one refund request per eligible order.
+- Submit one refund request per order number.
 - Track Submitted, Under Review, Approved, and Refunded milestones with timestamps.
 - See an estimated resolution date.
 - Open authorized supporting documents through five-minute signed links.
@@ -64,7 +63,7 @@ A verified customer can:
 Customers cannot:
 
 - Enter or change the refundable amount.
-- Change the product or purchase date recorded on the eligible order. The antivirus selector only verifies the order match.
+- Enter a refund amount, purchase date, or payout method.
 - Create their own refund reference number.
 - Submit an order belonging to another email address.
 - Submit a second refund for the same order.
@@ -79,9 +78,8 @@ The Refund Manager is an operational staff role with access to the Manager and B
 
 Refund Managers can:
 
-- Add eligible orders to the manual order ledger.
-- Record the customer name, email, phone, order number, product, purchase date, refundable amount, and refund method.
-- Mark an unused order Eligible or Blocked.
+- Verify the purchase date, refundable amount, and refund method for customer-submitted requests.
+- Start review only after the order details have been verified.
 - View customer refund requests and supporting documents.
 - Create a refund request on behalf of a customer when an exception requires staff intake.
 - Search requests by customer, reference, order, product, or status.
@@ -159,23 +157,19 @@ Portal Administrator protections:
 - Ordinary Administrators and Refund Managers cannot select or view it.
 - Ordinary Administrator audit queries exclude protected Portal Administrator activity.
 
-## Manual eligible-order workflow
+## Direct customer-request workflow
 
-1. An Administrator or Refund Manager signs in.
-2. Staff opens Manager and adds the purchase to the Manual Order Ledger.
-3. Staff records the authoritative refundable amount and order details.
-4. An Administrator creates the customer account if one does not already exist.
-5. Supabase sends the customer an email-verification message.
-6. The customer verifies the email and signs in at `/login`.
-7. The customer enters the order number.
-8. Row Level Security returns the order only when its email matches the verified account.
-9. The customer selects a reason, adds optional documents, reviews the locked values, and submits.
-10. PostgreSQL generates the refund reference and creates the request atomically.
-11. The order changes from Eligible to Refund Requested.
-12. If the customer cancels while Submitted, the request is deleted and the order becomes Eligible again.
-13. When the refund reaches Credited or Completed, the order becomes Refunded.
+1. The customer creates an account, verifies the email, and signs in at `/login`.
+2. The customer enters the order number and selects the antivirus product.
+3. The customer selects a reason, adds optional documents, reviews, and submits.
+4. PostgreSQL generates the refund reference and creates a Submitted request atomically.
+5. The amount and refund method remain Pending staff verification.
+6. A Refund Manager selects the request and records the verified purchase date, amount, and method.
+7. Start review remains disabled until those authoritative details are recorded.
+8. The request then follows the ordered review, document verification, approval, payment, and completion workflow.
+9. The customer may cancel and permanently delete the request while it remains Submitted.
 
-Submission controls include verified-email enforcement, one request per order, positive server-recorded amounts, and a maximum of five submissions per account per hour.
+Submission controls include verified-email enforcement, one request per customer and order number, staff-only refund amounts, and a maximum of five submissions per account per hour.
 
 ## Refund workflow
 
@@ -250,7 +244,6 @@ Delivery records contain status, attempt count, next attempt, provider reference
 
 Supabase Realtime refreshes:
 
-- Eligible orders
 - Refund requests
 - Status history
 - Supporting documents

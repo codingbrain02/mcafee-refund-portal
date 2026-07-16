@@ -16,15 +16,14 @@ Deleting an account removes associated operational records according to the data
 
 ## Refund operations
 
-1. Add the customer's authoritative purchase to the Manual Order Ledger.
-2. Record the verified order number, email, product, purchase date, refundable amount, and refund method.
-3. Create a verified customer account when the customer does not already have one.
-4. Open Manager and select a submitted refund.
-5. Start review.
-6. Enter a note and request documents when necessary.
-7. Verify documents after reviewing the signed document links.
-8. Approve or reject. Rejection requires a reason.
-9. Approved refunds move to Bank for manual payment tracking.
+1. The customer creates and verifies an account, then submits the order number, antivirus, reason, and optional documents.
+2. Open Manager and select the Submitted request.
+3. In Order verification, record the verified purchase date, refundable amount, and refund method.
+4. Start review after verification unlocks the workflow button.
+5. Enter a note and request documents when necessary.
+6. Verify documents after reviewing the signed document links.
+7. Approve or reject. Rejection requires a reason.
+8. Approved refunds move to Bank for manual payment tracking.
 
 Workflow buttons lock after an action is recorded or when a later step makes an earlier action invalid.
 
@@ -48,6 +47,6 @@ The Bank view is an internal manual-reconciliation interface. Complete the actua
 
 ## Role boundaries
 
-- Refund Managers maintain eligible orders, review requests, create reports, and reconcile payments. They cannot manage login accounts or roles.
+- Refund Managers verify customer-submitted order details, review requests, create reports, and reconcile payments. They cannot manage login accounts or roles.
 - Administrators perform manager work, create Customer and Refund Manager accounts, view customers, and inspect permitted audit events. They cannot change roles or delete accounts.
 - The Portal Administrator can create every role, change roles, and delete non-protected accounts. The protected head account cannot be viewed by ordinary staff, demoted, or deleted.

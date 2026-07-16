@@ -100,7 +100,6 @@ let requestId = null
 let cancellationRequestId = null
 let cancellationStoragePath = null
 let customerRecordId = null
-let eligibleOrderId = null
 let realtimeChannel = null
 
 async function cleanup() {
@@ -118,7 +117,6 @@ async function cleanup() {
     await service.from('refund_requests').delete().eq('id', cancellationRequestId)
   }
   if (customerRecordId) await service.from('customers').delete().eq('id', customerRecordId)
-  if (eligibleOrderId) await service.from('eligible_orders').delete().eq('id', eligibleOrderId)
   if (createdUserIds.length) await service.from('audit_logs').delete().in('actor_id', createdUserIds)
 
   for (const userId of [...createdUserIds].reverse()) {
@@ -145,14 +143,6 @@ async function cleanup() {
     assert.equal(remainingRequests.length, 0, 'Temporary UAT refund remains after cleanup.')
   }
 
-  if (eligibleOrderId) {
-    const { data: remainingOrders, error: orderCheckError } = await service
-      .from('eligible_orders')
-      .select('id')
-      .eq('id', eligibleOrderId)
-    if (orderCheckError) throw orderCheckError
-    assert.equal(remainingOrders.length, 0, 'Temporary UAT eligible order remains after cleanup.')
-  }
 }
 
 try {
@@ -185,36 +175,11 @@ try {
   console.log('PASS authentication and role sessions')
 
   const orderNumber = `ORDER-${stamp}`
-  const { data: eligibleOrder, error: eligibleOrderError } = await manager
-    .from('eligible_orders')
-    .insert({
-      order_number: orderNumber,
-      customer_email: identities[0].email,
-      customer_full_name: identities[0].fullName,
-      customer_phone: '+10000000000',
-      product_name: 'McAfee',
-      purchase_date: new Date().toISOString().slice(0, 10),
-      refundable_amount: 17.25,
-      refund_method: 'Original payment method',
-      created_by: identities[1].id,
-    })
-    .select('id')
-    .single()
-  if (eligibleOrderError) throw eligibleOrderError
-  eligibleOrderId = eligibleOrder.id
-
-  const { data: visibleOrders, error: visibleOrdersError } = await customer
-    .from('eligible_orders')
-    .select('id,refundable_amount')
-    .eq('id', eligibleOrderId)
-  if (visibleOrdersError) throw visibleOrdersError
-  assert.equal(visibleOrders.length, 1)
-  assert.equal(Number(visibleOrders[0].refundable_amount), 17.25)
-
   const { data: submittedRefund, error: submittedRefundError } = await customer.rpc(
-    'submit_eligible_order_refund',
+    'submit_customer_refund_request',
     {
-      p_order_id: eligibleOrderId,
+      p_order_number: orderNumber,
+      p_product_name: 'McAfee',
       p_refund_reason: 'Automated production acceptance test',
     },
   )
@@ -224,11 +189,12 @@ try {
   assert.match(submission.reference_number, /^REF-\d{8}-[A-F0-9]{8}$/)
   requestId = submission.refund_request_id
 
-  const duplicateSubmission = await customer.rpc('submit_eligible_order_refund', {
-    p_order_id: eligibleOrderId,
+  const duplicateSubmission = await customer.rpc('submit_customer_refund_request', {
+    p_order_number: orderNumber,
+    p_product_name: 'McAfee',
     p_refund_reason: 'Duplicate automated acceptance test',
   })
-  assert.ok(duplicateSubmission.error, 'A duplicate eligible-order refund should be rejected.')
+  assert.ok(duplicateSubmission.error, 'A duplicate customer order request should be rejected.')
 
   const { data: refund, error: refundError } = await customer
     .from('refund_requests')
@@ -236,7 +202,7 @@ try {
     .eq('id', requestId)
     .single()
   if (refundError) throw refundError
-  assert.equal(Number(refund.amount_requested), 17.25)
+  assert.equal(Number(refund.amount_requested), 0)
 
   const { data: customerRecord, error: customerError } = await customer
     .from('customers')
@@ -245,7 +211,7 @@ try {
     .single()
   if (customerError) throw customerError
   customerRecordId = customerRecord.id
-  console.log('PASS verified eligible-order submission, locked amount, and duplicate protection')
+  console.log('PASS direct customer submission, pending amount, and duplicate protection')
 
   const { data: customerUsers, error: customerUsersError } = await customer.from('users').select('id')
   if (customerUsersError) throw customerUsersError
@@ -372,6 +338,25 @@ try {
 
   const skippedApproval = await updateStatus(manager, requestId, 'approved', identities[1].id)
   assert.ok(skippedApproval.error, 'Skipping directly to approved should be rejected.')
+
+  const { error: verificationError } = await manager.rpc('verify_customer_refund_order', {
+    p_refund_request_id: requestId,
+    p_purchase_date: new Date().toISOString().slice(0, 10),
+    p_refund_amount: 17.25,
+    p_refund_method: 'Original payment method',
+  })
+  if (verificationError) throw verificationError
+
+  const { data: verifiedOrderRequest, error: verifiedOrderRequestError } = await manager
+    .from('refund_requests')
+    .select('amount_requested,preferred_payment_method,purchase_date')
+    .eq('id', requestId)
+    .single()
+  if (verifiedOrderRequestError) throw verifiedOrderRequestError
+  assert.equal(Number(verifiedOrderRequest.amount_requested), 17.25)
+  assert.equal(verifiedOrderRequest.preferred_payment_method, 'Original payment method')
+  assert.ok(verifiedOrderRequest.purchase_date)
+  console.log('PASS staff verification of customer-submitted order details')
 
   const started = await updateStatus(manager, requestId, 'under_review', identities[1].id)
   if (started.error) throw started.error

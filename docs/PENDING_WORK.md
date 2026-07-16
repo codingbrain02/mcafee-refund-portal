@@ -13,7 +13,7 @@ The application code is ready for the items below, but they require external ser
 
 ## Optional Future Integrations - Deferred
 
-- An order API is not required. Authorized staff maintain the eligible-order ledger manually.
+- An order API is not required. Customers submit order identifiers directly and authorized staff verify the amount and payment details manually.
 - A Bank of America API is not required. Authorized staff record externally processed payments and settlement manually.
 - Future automated banking would require official documentation, sandbox access, client credentials, written approval, idempotency, signed webhooks, reconciliation, and production acceptance tests.
 - Future automated order lookup would require an authorized order-system contract and server-side validation.

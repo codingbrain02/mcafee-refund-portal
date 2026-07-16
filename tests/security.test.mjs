@@ -48,21 +48,22 @@ test('enforces staff account creation role boundaries', () => {
   assert.equal(canCreatePortalRole(refundManager, 'customer'), false)
 })
 
-test('public registration creates customers while refunds still use verified orders', () => {
+test('verified customers can submit requests while staff control refund amounts', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const migration = readFileSync(
-    new URL('../supabase/migrations/20260716090000_manual_order_ledger.sql', import.meta.url),
+    new URL('../supabase/migrations/20260716110000_direct_customer_refund_requests.sql', import.meta.url),
     'utf8',
   )
 
   assert.match(app, /async function handleSignUp/)
   assert.match(app, /Create customer account/)
   assert.match(app, /emailRedirectTo: `\$\{window\.location\.origin\}\/login`/)
-  assert.match(app, /submit_eligible_order_refund/)
+  assert.match(app, /submit_customer_refund_request/)
+  assert.match(app, /verify_customer_refund_order/)
   assert.match(migration, /customer_user\.role <> 'customer'/)
   assert.match(migration, /customer_user\.email_confirmed_at is null/)
-  assert.match(migration, /order_record\.refundable_amount/)
-  assert.match(migration, /refund_requests_eligible_order_unique/)
+  assert.match(migration, /'Pending staff verification'/)
+  assert.match(migration, /p_refund_amount is null or p_refund_amount <= 0/)
   assert.match(migration, /refund-submit:/)
 })
 
@@ -75,9 +76,9 @@ test('customer form does not collect government ID or an arbitrary refund amount
 
   assert.doesNotMatch(customerForm, /Government ID/i)
   assert.doesNotMatch(customerForm, /name="amountRequested"/)
-  assert.match(customerForm, /<OrderSummary order=/)
+  assert.match(customerForm, /Pending staff verification/)
   assert.match(customerForm, /Antivirus product/)
-  assert.match(app, /The selected antivirus does not match this order/)
+  assert.doesNotMatch(customerForm, /name="refundAmount"/)
 })
 
 test('deployment configuration contains core browser protections', () => {

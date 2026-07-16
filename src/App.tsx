@@ -1,7 +1,6 @@
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type AuditLogRow,
-  type EligibleOrderRow,
   hasSupabaseConfig,
   type InternalNoteRow,
   type NotificationRow,
@@ -190,15 +189,12 @@ function App() {
   const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransactionRow[]>([])
   const [refundDocuments, setRefundDocuments] = useState<RefundDocumentRow[]>([])
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
-  const [eligibleOrders, setEligibleOrders] = useState<EligibleOrderRow[]>([])
-  const [selectedEligibleOrderId, setSelectedEligibleOrderId] = useState('')
   const [customerOrderLookup, setCustomerOrderLookup] = useState('')
   const [customerAntivirus, setCustomerAntivirus] = useState('')
   const [customerRefundReason, setCustomerRefundReason] = useState('')
   const [customerRefundDetails, setCustomerRefundDetails] = useState('')
   const [customerRefundStep, setCustomerRefundStep] = useState(1)
   const [customerDocuments, setCustomerDocuments] = useState<File[]>([])
-  const [isCreatingOrder, setIsCreatingOrder] = useState(false)
   const [mfaFactorId, setMfaFactorId] = useState('')
   const [mfaChallengeId, setMfaChallengeId] = useState('')
   const mfaChallengeIdRef = useRef('')
@@ -302,7 +298,6 @@ function App() {
       void loadRefundRequests()
       void loadStatusHistory()
       void loadRefundDocuments()
-      void loadEligibleOrders()
     }
   }, [profile])
 
@@ -345,7 +340,6 @@ function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, queueRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_logs' }, queueRealtimeRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'eligible_orders' }, queueRealtimeRefresh)
       .subscribe()
 
     return () => {
@@ -423,11 +417,6 @@ function App() {
   const selectedRequest = useMemo(
     () => requests.find((request) => request.id === selectedRequestId) ?? requests[0] ?? null,
     [requests, selectedRequestId],
-  )
-
-  const selectedEligibleOrder = useMemo(
-    () => eligibleOrders.find((order) => order.id === selectedEligibleOrderId) ?? null,
-    [eligibleOrders, selectedEligibleOrderId],
   )
 
   const activeAntivirus = useMemo(() => {
@@ -522,20 +511,31 @@ function App() {
     [selectedRequest, statusHistory],
   )
 
-  const managerWorkflowActionStates = useMemo(
-    () => ({
-      under_review: getManagerWorkflowActionState(
-        selectedRequest,
-        selectedStatusHistory,
-        'under_review',
-      ),
+  const managerWorkflowActionStates = useMemo(() => {
+    const orderVerificationPending = Boolean(
+      selectedRequest &&
+        (Number(selectedRequest.amount_requested) <= 0 ||
+          !selectedRequest.purchase_date ||
+          selectedRequest.preferred_payment_method === 'Pending staff verification'),
+    )
+    const underReview = getManagerWorkflowActionState(
+      selectedRequest,
+      selectedStatusHistory,
+      'under_review',
+    )
+
+    return {
+      under_review: orderVerificationPending
+        ? { disabled: true, reason: 'Verify the order amount and payment method before starting review.' }
+        : underReview,
       documents_verified: getManagerWorkflowActionState(
         selectedRequest,
         selectedStatusHistory,
         'documents_verified',
       ),
       approved: getManagerWorkflowActionState(selectedRequest, selectedStatusHistory, 'approved'),
-    }),
+    }
+  },
     [selectedRequest, selectedStatusHistory],
   )
 
@@ -605,7 +605,6 @@ function App() {
       setAuditLogs([])
       setPaymentTransactions([])
       setNotifications([])
-      setEligibleOrders([])
       setSelectedRequestId('')
       return
     }
@@ -673,7 +672,7 @@ function App() {
   }
 
   async function loadInitialPortalData(profileToLoad: UserProfile) {
-    await Promise.all([loadRefundRequests(), loadStatusHistory(), loadRefundDocuments(), loadEligibleOrders()])
+    await Promise.all([loadRefundRequests(), loadStatusHistory(), loadRefundDocuments()])
 
     if (profileToLoad.role === 'administrator' || profileToLoad.role === 'refund_manager') {
       await dispatchQueuedNotifications()
@@ -844,25 +843,6 @@ function App() {
     }
 
     setNotifications((data ?? []) as NotificationRow[])
-  }
-
-  async function loadEligibleOrders() {
-    if (!supabase) return
-
-    const { data, error } = await supabase
-      .from('eligible_orders')
-      .select(
-        'id, order_number, customer_email, customer_full_name, customer_phone, product_name, purchase_date, refundable_amount, refund_method, status, created_by, created_at, updated_at',
-      )
-      .order('created_at', { ascending: false })
-      .limit(100)
-
-    if (error) {
-      setNotice({ kind: 'error', message: getCustomerFriendlyError(error.message) })
-      return
-    }
-
-    setEligibleOrders((data ?? []) as EligibleOrderRow[])
   }
 
   async function dispatchQueuedNotifications(refundRequestId?: string) {
@@ -1222,8 +1202,6 @@ function App() {
     setPaymentTransactions([])
     setRefundDocuments([])
     setNotifications([])
-    setEligibleOrders([])
-    setSelectedEligibleOrderId('')
     setCustomerOrderLookup('')
     setCustomerAntivirus('')
     setCustomerRefundReason('')
@@ -1243,7 +1221,7 @@ function App() {
 
   async function handleRefundSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!supabase || !profile || !selectedEligibleOrder) return
+    if (!supabase || !profile || !customerOrderLookup.trim() || !customerAntivirus) return
 
     if (!customerRefundReason) {
       showCustomerDialog('error', 'Select a refund reason before submitting.')
@@ -1266,8 +1244,9 @@ function App() {
     }
 
     setIsSubmittingRefund(true)
-    const { data, error } = await supabase.rpc('submit_eligible_order_refund', {
-      p_order_id: selectedEligibleOrder.id,
+    const { data, error } = await supabase.rpc('submit_customer_refund_request', {
+      p_order_number: customerOrderLookup.trim(),
+      p_product_name: customerAntivirus,
       p_refund_reason: customerRefundDetails.trim()
         ? `${customerRefundReason}: ${customerRefundDetails.trim()}`
         : customerRefundReason,
@@ -1313,7 +1292,6 @@ function App() {
     setCustomerRefundStep(1)
     setCustomerOrderLookup('')
     setCustomerAntivirus('')
-    setSelectedEligibleOrderId('')
     setCustomerRefundReason('')
     setCustomerRefundDetails('')
     setCustomerDocuments([])
@@ -1328,38 +1306,8 @@ function App() {
   }
 
   function handleCustomerOrderLookup() {
-    const lookup = customerOrderLookup.trim().toLowerCase()
-    const order = eligibleOrders.find((candidate) => candidate.order_number.toLowerCase() === lookup)
-
-    if (!order) {
-      showCustomerDialog(
-        'error',
-        'No order matching this number and your verified email was found. Check the order number or contact support.',
-        'Order not found',
-      )
-      return
-    }
-
-    if (order.product_name.toLowerCase() !== customerAntivirus.toLowerCase()) {
-      showCustomerDialog(
-        'error',
-        'The selected antivirus does not match this order. Check your purchase confirmation and try again.',
-        'Product does not match',
-      )
-      return
-    }
-
-    if (order.status !== 'eligible') {
-      showCustomerDialog(
-        'info',
-        `Order ${order.order_number} is currently ${formatStatus(order.status)} and cannot start another refund.`,
-        'Order unavailable',
-      )
-      return
-    }
-
-    setSelectedEligibleOrderId(order.id)
-    setSelectedAntivirus(order.product_name)
+    if (!customerOrderLookup.trim() || !customerAntivirus) return
+    setSelectedAntivirus(customerAntivirus)
     setCustomerRefundStep(2)
   }
 
@@ -1390,86 +1338,35 @@ function App() {
     })
   }
 
-  async function handleEligibleOrderSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleVerifyCustomerOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!supabase || !profile || !['administrator', 'refund_manager'].includes(profile.role)) return
+    if (!supabase || !selectedRequest) return
 
     const form = new FormData(event.currentTarget)
-    const orderNumber = String(form.get('orderNumber') ?? '').trim()
-    const customerEmail = String(form.get('customerEmail') ?? '').trim().toLowerCase()
-    const customerFullName = String(form.get('customerFullName') ?? '').trim()
-    const customerPhone = String(form.get('customerPhone') ?? '').trim()
-    const productName = String(form.get('productName') ?? '').trim()
     const purchaseDate = String(form.get('purchaseDate') ?? '')
-    const refundableAmount = Number(form.get('refundableAmount'))
+    const refundAmount = Number(form.get('refundAmount'))
     const refundMethod = String(form.get('refundMethod') ?? '').trim()
 
-    if (
-      !orderNumber ||
-      !customerEmail ||
-      !customerFullName ||
-      !productName ||
-      !purchaseDate ||
-      !refundMethod ||
-      refundableAmount <= 0
-    ) {
-      showCustomerDialog('error', 'Complete all required order fields with a valid refundable amount.')
-      return
-    }
-
-    setIsCreatingOrder(true)
-    const { error } = await supabase.from('eligible_orders').insert({
-      order_number: orderNumber,
-      customer_email: customerEmail,
-      customer_full_name: customerFullName,
-      customer_phone: customerPhone || null,
-      product_name: productName,
-      purchase_date: purchaseDate,
-      refundable_amount: refundableAmount,
-      refund_method: refundMethod,
-      created_by: profile.id,
+    setActionLoading('verify-order')
+    const { error } = await supabase.rpc('verify_customer_refund_order', {
+      p_refund_request_id: selectedRequest.id,
+      p_purchase_date: purchaseDate,
+      p_refund_amount: refundAmount,
+      p_refund_method: refundMethod,
     })
-    setIsCreatingOrder(false)
+    setActionLoading('')
 
     if (error) {
-      showCustomerDialog('error', getCustomerFriendlyError(error.message), 'Order could not be saved')
+      showCustomerDialog('error', getCustomerFriendlyError(error.message), 'Order verification failed')
       return
     }
 
-    event.currentTarget.reset()
-    await loadEligibleOrders()
-    await logAudit('eligible_order_created', 'eligible_order', null, {
-      customerEmail,
-      orderNumber,
-      productName,
-      refundableAmount,
-    })
+    await refreshOperations()
     showCustomerDialog(
       'success',
-      `Order ${orderNumber} is now available to the verified customer account for ${customerEmail}.`,
-      'Eligible order saved',
+      `The verified amount and payment method were recorded for ${selectedRequest.reference_number}.`,
+      'Order details verified',
     )
-  }
-
-  async function handleUpdateEligibleOrderStatus(order: EligibleOrderRow, status: EligibleOrderRow['status']) {
-    if (!supabase || !profile || !['administrator', 'refund_manager'].includes(profile.role)) return
-
-    const { error } = await supabase
-      .from('eligible_orders')
-      .update({ status })
-      .eq('id', order.id)
-
-    if (error) {
-      showCustomerDialog('error', getCustomerFriendlyError(error.message))
-      return
-    }
-
-    await logAudit('eligible_order_status_updated', 'eligible_order', order.id, {
-      from: order.status,
-      orderNumber: order.order_number,
-      to: status,
-    })
-    await loadEligibleOrders()
   }
 
   async function handleDownloadReceipt(request: RefundRequestRow) {
@@ -1488,7 +1385,12 @@ function App() {
       ['Order', request.order_number],
       ['Product', request.product_name],
       ['Customer', request.customers?.full_name ?? 'Customer'],
-      ['Amount', `$${Number(request.amount_requested).toFixed(2)}`],
+      [
+        'Amount',
+        Number(request.amount_requested) > 0
+          ? `$${Number(request.amount_requested).toFixed(2)}`
+          : 'Pending staff verification',
+      ],
       ['Status', formatStatus(request.status)],
       ['Submitted', formatDateTime(request.created_at)],
     ]
@@ -2126,7 +2028,6 @@ function App() {
     await loadRefundRequests()
     await loadStatusHistory()
     await loadRefundDocuments()
-    await loadEligibleOrders()
 
     if (profile?.role === 'administrator' || profile?.role === 'refund_manager') {
       await loadInternalNotes()
@@ -2144,7 +2045,6 @@ function App() {
     await loadRefundRequests()
     await loadStatusHistory()
     await loadRefundDocuments()
-    await loadEligibleOrders()
 
     if (role === 'administrator' || role === 'refund_manager') {
       await loadInternalNotes()
@@ -2201,7 +2101,7 @@ function App() {
           />
           <div>
             <strong>{activeAntivirus.label} Refund Processing Portal</strong>
-            <small>Access verified orders and refund operations</small>
+            <small>Submit and manage customer refund requests</small>
           </div>
         </div>
 
@@ -2308,7 +2208,7 @@ function App() {
                   </h1>
                   <p>
                     {authMode === 'sign-up'
-                      ? 'Create an account using the email connected to your eligible order.'
+                      ? 'Create an account using the email connected to your purchase.'
                       : 'Use the verified account connected to your customer order or staff access.'}
                   </p>
                 </div>
@@ -2370,7 +2270,7 @@ function App() {
                 <p className="login-support-copy">
                   {authMode === 'sign-up'
                     ? 'Email verification is required. Creating an account does not create or change an order.'
-                    : 'Customers can create an account here, but refund access still requires a matching eligible order.'}
+                    : 'Customers can create an account here and submit an order for staff verification.'}
                 </p>
               </>
             )}
@@ -2426,8 +2326,8 @@ function App() {
             </div>
             <p>
               {profile?.role === 'customer'
-                ? 'Find an eligible order, submit a request, and follow every status update.'
-                : 'Review customer requests, maintain eligible orders, and record payment outcomes.'}
+                ? 'Submit an order for verification and follow every refund status update.'
+                : 'Verify customer orders, review requests, and record payment outcomes.'}
             </p>
           </div>
         </header>
@@ -2499,9 +2399,9 @@ function App() {
                 <div className="guided-form-heading">
                   <div>
                     <p className="eyebrow">Start a refund</p>
-                    <h2>Submit a verified order</h2>
+                    <h2>Request a refund</h2>
                   </div>
-                  <p>Initial review typically begins within 10-15 minutes after a verified submission.</p>
+                  <p>Submit your order details now. Staff will verify the refund amount during review.</p>
                 </div>
 
                 <ol className="form-progress" aria-label="Refund request progress">
@@ -2520,7 +2420,7 @@ function App() {
                   <section className="guided-form-section">
                     <div className="field-section-heading">
                       <h3>Identify your order</h3>
-                      <p>Your verified account email must match the email recorded for the order.</p>
+                      <p>Enter the order number and antivirus product shown on your purchase confirmation.</p>
                     </div>
                     <div className="order-lookup-grid">
                       <label>
@@ -2566,8 +2466,8 @@ function App() {
                     <div className="customer-safety-notice" role="note">
                       <span aria-hidden="true">i</span>
                       <p>
-                        We match this request to a recorded order. Never provide passwords, full card
-                        numbers, or bank login details.
+                        Staff will verify the order, purchase date, refundable amount, and payment method.
+                        Never provide passwords, full card numbers, or bank login details.
                       </p>
                     </div>
                     <button
@@ -2581,18 +2481,22 @@ function App() {
                       }
                       type="button"
                     >
-                      Find my order
+                      Continue
                     </button>
                   </section>
                 )}
 
-                {customerRefundStep === 2 && selectedEligibleOrder && (
+                {customerRefundStep === 2 && (
                   <section className="guided-form-section">
                     <div className="field-section-heading">
                       <h3>Reason and documents</h3>
                       <p>Supporting documents are optional unless the review team requests them.</p>
                     </div>
-                    <OrderSummary order={selectedEligibleOrder} />
+                    <dl className="request-order-summary">
+                      <div><dt>Order number</dt><dd>{customerOrderLookup}</dd></div>
+                      <div><dt>Antivirus</dt><dd>{customerAntivirus}</dd></div>
+                      <div><dt>Refund amount</dt><dd>Pending staff verification</dd></div>
+                    </dl>
                     <fieldset className="refund-reason-options">
                       <legend>Reason for refund</legend>
                       {[
@@ -2672,16 +2576,20 @@ function App() {
                   </section>
                 )}
 
-                {customerRefundStep === 3 && selectedEligibleOrder && (
+                {customerRefundStep === 3 && (
                   <section className="guided-form-section">
                     <div className="field-section-heading">
                       <h3>Review and submit</h3>
-                      <p>Confirm the order details below. The refund amount cannot be changed.</p>
+                      <p>Confirm your request. Staff will verify the order and refundable amount.</p>
                     </div>
-                    <OrderSummary order={selectedEligibleOrder} />
+                    <dl className="request-order-summary">
+                      <div><dt>Order number</dt><dd>{customerOrderLookup}</dd></div>
+                      <div><dt>Antivirus</dt><dd>{customerAntivirus}</dd></div>
+                      <div><dt>Refund amount</dt><dd>Pending staff verification</dd></div>
+                    </dl>
                     <dl className="review-details">
                       <div><dt>Reason</dt><dd>{customerRefundReason}</dd></div>
-                      <div><dt>Refund method</dt><dd>{selectedEligibleOrder.refund_method}</dd></div>
+                      <div><dt>Refund method</dt><dd>Pending staff verification</dd></div>
                       <div><dt>Documents</dt><dd>{customerDocuments.length || 'None attached'}</dd></div>
                     </dl>
                     {customerRefundDetails.trim() && (
@@ -2692,7 +2600,7 @@ function App() {
                     )}
                     <label className="confirmation-check">
                       <input required type="checkbox" />
-                      <span>I confirm that the information is accurate and belongs to my verified order.</span>
+                      <span>I confirm that the order information is accurate and belongs to me.</span>
                     </label>
                     <div className="guided-form-actions">
                       <button className="secondary-button" onClick={() => setCustomerRefundStep(2)} type="button">Back</button>
@@ -2739,7 +2647,7 @@ function App() {
                         />
                       ))}
                       {customerPanelRequests.length === 0 && (
-                        <p className="empty-state">No refund requests yet. Find an eligible order above to begin.</p>
+                        <p className="empty-state">No refund requests yet. Use the form above to submit one.</p>
                       )}
                     </div>
                   ) : (
@@ -2787,100 +2695,6 @@ function App() {
                 </article>
               ))}
             </div>
-
-            <section className="order-ledger-layout">
-              <form className="work-card form-grid" onSubmit={handleEligibleOrderSubmit}>
-                <div className="section-heading full-span">
-                  <p className="eyebrow">Manual order ledger</p>
-                  <h2>Add an eligible customer order</h2>
-                  <p className="section-copy">
-                    Customers can only request the product, purchase date, method, and amount recorded here.
-                  </p>
-                </div>
-                <label>
-                  Order number
-                  <input name="orderNumber" placeholder="Unique order number" required />
-                </label>
-                <label>
-                  Customer email
-                  <input name="customerEmail" placeholder="customer@example.com" required type="email" />
-                </label>
-                <label>
-                  Customer full name
-                  <input autoComplete="name" name="customerFullName" required />
-                </label>
-                <label>
-                  Customer phone
-                  <input autoComplete="tel" name="customerPhone" type="tel" />
-                </label>
-                <label>
-                  Product
-                  <select defaultValue="McAfee" name="productName" required>
-                    {antivirusOptions.map((option) => (
-                      <option key={option.label} value={option.label}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Purchase date
-                  <input name="purchaseDate" required type="date" />
-                </label>
-                <label>
-                  Refundable amount
-                  <input min="0.01" name="refundableAmount" required step="0.01" type="number" />
-                </label>
-                <label>
-                  Refund method
-                  <select defaultValue="Original payment method" name="refundMethod" required>
-                    <option>Original payment method</option>
-                    <option>Store credit</option>
-                    <option>Manual bank transfer</option>
-                  </select>
-                </label>
-                <button className="primary-action" disabled={isCreatingOrder} type="submit">
-                  {isCreatingOrder ? 'Saving order...' : 'Save eligible order'}
-                </button>
-              </form>
-
-              <section className="work-card">
-                <div className="section-heading row-heading">
-                  <div>
-                    <p className="eyebrow">Eligible orders</p>
-                    <h2>Manual order records</h2>
-                  </div>
-                  <span className="realtime-badge">Updates automatically</span>
-                </div>
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Order</th><th>Customer</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {eligibleOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td data-label="Order">{order.order_number}</td>
-                          <td data-label="Customer">{order.customer_full_name}<small className="table-subtext">{order.customer_email}</small></td>
-                          <td data-label="Product">{order.product_name}</td>
-                          <td data-label="Amount">${Number(order.refundable_amount).toFixed(2)}</td>
-                          <td data-label="Status">
-                            <select
-                              aria-label={`Status for order ${order.order_number}`}
-                              disabled={order.status === 'refund_requested' || order.status === 'refunded'}
-                              onChange={(event) => void handleUpdateEligibleOrderStatus(order, event.target.value as EligibleOrderRow['status'])}
-                              value={order.status}
-                            >
-                              <option value="eligible">Eligible</option>
-                              <option value="blocked">Blocked</option>
-                              <option value="refund_requested">Refund requested</option>
-                              <option value="refunded">Refunded</option>
-                            </select>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {eligibleOrders.length === 0 && <p className="empty-state">No eligible orders have been recorded.</p>}
-                </div>
-              </section>
-            </section>
 
             <form className="work-card form-grid staff-intake-card" onSubmit={handleStaffRefundSubmit}>
               <div className="section-heading">
@@ -3095,7 +2909,11 @@ function App() {
                           <td data-label="Customer">{request.customers?.full_name ?? 'Unknown'}</td>
                           <td data-label="Product">{request.product_name}</td>
                           <td data-label="Order">{request.order_number}</td>
-                          <td data-label="Amount">${Number(request.amount_requested).toFixed(2)}</td>
+                          <td data-label="Amount">
+                            {Number(request.amount_requested) > 0
+                              ? `$${Number(request.amount_requested).toFixed(2)}`
+                              : 'Pending verification'}
+                          </td>
                           <td data-label="Status">
                             <span className="status-pill">{formatStatus(request.status)}</span>
                           </td>
@@ -3229,6 +3047,42 @@ function App() {
                     </label>
                   </div>
                 )}
+                {selectedRequest &&
+                  selectedRequest.status === 'submitted' &&
+                  (Number(selectedRequest.amount_requested) <= 0 ||
+                    !selectedRequest.purchase_date ||
+                    selectedRequest.preferred_payment_method === 'Pending staff verification') && (
+                    <form
+                      className="manager-order-verification"
+                      key={`verify-${selectedRequest.id}`}
+                      onSubmit={handleVerifyCustomerOrder}
+                    >
+                      <div className="field-section-heading">
+                        <p className="eyebrow">Order verification</p>
+                        <h3>Record verified refund details</h3>
+                        <p>Confirm these details from the purchase record before starting review.</p>
+                      </div>
+                      <label>
+                        Purchase date
+                        <input max={new Date().toISOString().slice(0, 10)} name="purchaseDate" required type="date" />
+                      </label>
+                      <label>
+                        Verified refund amount
+                        <input min="0.01" name="refundAmount" required step="0.01" type="number" />
+                      </label>
+                      <label>
+                        Refund method
+                        <select defaultValue="Original payment method" name="refundMethod" required>
+                          <option>Original payment method</option>
+                          <option>Store credit</option>
+                          <option>Manual bank transfer</option>
+                        </select>
+                      </label>
+                      <button className="primary-action" disabled={actionLoading === 'verify-order'} type="submit">
+                        {actionLoading === 'verify-order' ? 'Saving details...' : 'Verify order details'}
+                      </button>
+                    </form>
+                  )}
                 {selectedRequest && (
                   <DocumentList
                     documents={refundDocuments.filter(
@@ -4112,7 +3966,11 @@ function RequestSummaryCard({
         </div>
         <div>
           <dt>Amount</dt>
-          <dd>${Number(request.amount_requested).toFixed(2)}</dd>
+          <dd>
+            {Number(request.amount_requested) > 0
+              ? `$${Number(request.amount_requested).toFixed(2)}`
+              : 'Pending verification'}
+          </dd>
         </div>
         <div>
           <dt>Method</dt>
@@ -4157,21 +4015,6 @@ function RequestSummaryCard({
         </div>
       )}
     </article>
-  )
-}
-
-function OrderSummary({ order }: { order: EligibleOrderRow }) {
-  const product = getAntivirusOption(order.product_name)
-  return (
-    <div className="verified-order-summary">
-      <img alt="" aria-hidden="true" src={product.icon} />
-      <dl>
-        <div><dt>Order</dt><dd>{order.order_number}</dd></div>
-        <div><dt>Product</dt><dd>{order.product_name}</dd></div>
-        <div><dt>Purchase date</dt><dd>{formatDate(order.purchase_date)}</dd></div>
-        <div><dt>Refund amount</dt><dd>${Number(order.refundable_amount).toFixed(2)}</dd></div>
-      </dl>
-    </div>
   )
 }
 

@@ -29,12 +29,13 @@ Items that depend on external accounts, approvals, or authorized banking credent
 
 ## Refund workflow
 
-- [ ] Staff can add an eligible order manually.
-- [ ] Customer sees only orders matching the verified account email.
-- [ ] Customer cannot edit product, date, refund method, amount, or reference.
-- [ ] A duplicate refund for the same eligible order is rejected.
+- [ ] Customer can submit an order number and antivirus without a pre-created ledger record.
+- [ ] Customer cannot enter the purchase date, refund method, amount, or reference.
+- [ ] A duplicate request for the same customer and order number is rejected.
+- [ ] Staff can verify the purchase date, positive amount, and refund method.
+- [ ] Start review remains disabled until staff verification is complete.
 - [ ] Submission rate limiting is enforced.
-- [ ] Customer can submit and cancel an eligible request.
+- [ ] Customer can submit and cancel a Submitted request.
 - [ ] Staff can submit on behalf of a customer.
 - [ ] Review actions lock in the correct order.
 - [ ] Rejection requires and records a reason.

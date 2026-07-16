@@ -29,22 +29,6 @@ export type RefundRequestRow = {
   } | null
 }
 
-export type EligibleOrderRow = {
-  id: string
-  order_number: string
-  customer_email: string
-  customer_full_name: string
-  customer_phone: string | null
-  product_name: string
-  purchase_date: string
-  refundable_amount: number
-  refund_method: string
-  status: 'eligible' | 'refund_requested' | 'refunded' | 'blocked'
-  created_by: string
-  created_at: string
-  updated_at: string
-}
-
 export type CustomerRow = {
   id: string
   full_name: string

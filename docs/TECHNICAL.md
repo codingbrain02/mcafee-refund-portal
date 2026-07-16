@@ -11,9 +11,9 @@
 ## Data flow
 
 1. Supabase Auth restores the browser session.
-2. Staff maintain authoritative eligible orders in PostgreSQL.
-3. RLS exposes an order to a customer only when its email matches the verified account.
-4. A security-definer function locks product, date, method, and amount to the selected order and generates the refund reference.
+2. A verified customer submits an order number, antivirus product, reason, and optional documents through a security-definer function.
+3. PostgreSQL generates the reference while amount, purchase date, and refund method remain pending.
+4. A staff-only security-definer function records authoritative order details before review can begin.
 5. Refund actions write status history and immutable audit metadata.
 6. Database triggers queue email notifications.
 7. Authenticated portal actions invoke the Resend processor.
