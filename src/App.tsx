@@ -3540,10 +3540,6 @@ function App() {
                   </div>
 
                   <div className="boa-action-bar">
-                    <p>
-                      This creates an internal record only. Complete the actual payment through the
-                      authorized bank process.
-                    </p>
                     <button
                       disabled={
                         !selectedPaymentRequest ||
