@@ -111,9 +111,9 @@ const antivirusOptions: AntivirusOption[] = [
   },
   {
     accent: '#334155',
-    icon: '/favicon.svg',
+    icon: '/others-icon.png',
     label: 'Other antivirus',
-    logo: '/favicon.svg',
+    logo: '/others-icon.png',
     status: '#475569',
     statusBg: '#f1f5f9',
   },
