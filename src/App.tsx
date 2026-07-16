@@ -1843,17 +1843,32 @@ function App() {
     setIsDeletingUser(true)
     setDeleteUserError('')
 
-    const { error } = await supabase.rpc('delete_user_account', {
-      confirmation: deleteConfirmationText,
-      target_user_id: deleteTargetUser.id,
-    })
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Your session expired. Sign in again and retry the deletion.')
 
-    setIsDeletingUser(false)
-
-    if (error) {
-      setDeleteUserError(getCustomerFriendlyError(error.message))
+      const response = await fetch('/api/delete-user', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          confirmation: deleteConfirmationText,
+          targetUserId: deleteTargetUser.id,
+        }),
+      })
+      const result = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Account deletion failed.')
+    } catch (error) {
+      setIsDeletingUser(false)
+      setDeleteUserError(error instanceof Error ? error.message : 'Account deletion failed.')
       return
     }
+
+    setIsDeletingUser(false)
 
     const deletedEmail = deleteTargetUser.email
     await loadUsers(profile.email)

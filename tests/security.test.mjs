@@ -51,16 +51,27 @@ test('enforces staff account creation role boundaries', () => {
 test('portal account deletion covers current user-linked records and reports modal errors', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const migration = readFileSync(
+    new URL('../supabase/migrations/20260716131000_delete_user_storage_api.sql', import.meta.url),
+    'utf8',
+  )
+  const accountMigration = readFileSync(
     new URL('../supabase/migrations/20260716130000_fix_complete_user_deletion.sql', import.meta.url),
     'utf8',
   )
+  const endpoint = readFileSync(new URL('../api/delete-user.js', import.meta.url), 'utf8')
 
-  assert.match(migration, /if not public\.is_portal_administrator\(\)/)
+  assert.match(accountMigration, /if not public\.is_portal_administrator\(\)/)
   assert.match(migration, /update public\.refund_requests request[\s\S]*eligible_order_id = null/)
   assert.match(migration, /delete from public\.eligible_orders/)
   assert.match(migration, /lower\(customer\.email\)/)
-  assert.match(migration, /delete from auth\.users/)
-  assert.match(app, /setDeleteUserError\(getCustomerFriendlyError\(error\.message\)\)/)
+  assert.match(accountMigration, /delete from auth\.users/)
+  assert.match(migration, /grant execute on function public\.get_user_deletion_document_paths\(uuid\) to service_role/)
+  assert.match(migration, /Storage API before account deletion/)
+  assert.match(endpoint, /authenticatePortalUser/)
+  assert.match(endpoint, /profile\.email[\s\S]*headAdministratorEmail/)
+  assert.match(endpoint, /\.from\('refund-documents'\)[\s\S]*\.remove/)
+  assert.match(endpoint, /userClient\.rpc\('delete_user_account'/)
+  assert.match(app, /fetch\('\/api\/delete-user'/)
   assert.match(app, /modal-inline-error/)
 })
 
